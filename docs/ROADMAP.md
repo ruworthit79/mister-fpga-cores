@@ -59,11 +59,15 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
   in isolation; end-to-end boot needs the IOP host side, a real ROM, and a full
   mixed-language system sim / hardware build.
 
-## Phase 4 — Sound + polish ⬜
-- ⬜ `asc`/DFAC: FIFO + 4-voice playback, 22.257 kHz → 16-bit resample
-- ⬜ Save/load PRAM to MiSTer persistent storage
-- ⬜ Multiple Apple video timings selectable from the OSD
-- ⬜ Cycle/timing tuning
+## Phase 4 — Sound + polish 🚧 (sound done, sim-verified)
+- ✅ `asc`: Apple Sound Chip FIFO playback — stereo 8-bit FIFOs, offset-binary
+  → signed-16 conversion, sample-rate playout, half-empty IRQ. **Icarus-
+  verified**; wired into I/O space ($50F3) and the audio output.
+- ⬜ `asc`: 4-voice wavetable mode + DFAC record path
+- ⬜ Save/load PRAM to MiSTer persistent storage (expose Caboose PRAM to hps_io)
+- ⬜ Wire the OSD "Screen size" option to a programmable DAFB CRTC (multiple
+  Apple timings); today DAFB timing is fixed 640×480
+- ⬜ Cycle/timing tuning; regenerate the PLL; 33 MHz `ce` divider
 
 ## Phase 5 — Toward real 68040 fidelity ⬜
 - ⬜ MMU (enables modern System versions / VM / A/UX)

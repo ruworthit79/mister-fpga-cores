@@ -137,6 +137,11 @@ module quadra950
 	wire sel_scsi1 = sel_io & (cpu_addr[23:16] == 8'hF2);
 	wire [3:0] scsi_reg = cpu_addr[7:4];         // 16-byte register spacing
 
+	// Apple Sound Chip in I/O space ($50F3_xxxx)
+	wire sel_asc = sel_io & (cpu_addr[23:16] == 8'hF3);
+	wire [7:0] asc_dout;
+	wire       asc_ack, asc_irq;
+
 	// ROM overlay: at reset the MCU maps ROM over low memory ($0). Per Apple's
 	// developer note, the overlay is cleared on the first access to ROM's real
 	// location ($40000000), after which RAM appears at $0.
@@ -199,7 +204,7 @@ module quadra950
 	(
 		.clk      (clk_sys),
 		.reset    (reset),
-		.sel      (sel_io & cpu_ts & ~sel_scsi0 & ~sel_scsi1),
+		.sel      (sel_io & cpu_ts & ~sel_scsi0 & ~sel_scsi1 & ~sel_asc),
 		.addr     (cpu_addr[23:0]),
 		.din      (cpu_dout),
 		.dout     (io_dout),
@@ -208,7 +213,7 @@ module quadra950
 		.vbl      (VBlank),        // DAFB vertical blank -> VIA1 CA1
 		.ps2_key  (ps2_key),
 		.ps2_mouse(ps2_mouse),
-		.ext_irq2 (scsi0_irq | scsi1_irq),
+		.ext_irq2 (scsi0_irq | scsi1_irq | asc_irq),
 		.ipl      (ipl)
 	);
 
@@ -248,26 +253,38 @@ module quadra950
 	//========================================================================
 	assign cpu_din = sel_scsi0 ? {24'd0, scsi0_dout} :
 	                 sel_scsi1 ? {24'd0, scsi1_dout} :
+	                 sel_asc   ? {24'd0, asc_dout}   :
 	                 sel_io    ? io_dout   :
 	                 sel_dafb  ? dafb_dout :
 	                             ram_dout;
 
-	assign cpu_ta  = ram_ack | io_ack | dafb_ack | scsi0_ack | scsi1_ack;
+	assign cpu_ta  = ram_ack | io_ack | dafb_ack | scsi0_ack | scsi1_ack | asc_ack;
 
 	//========================================================================
 	//  Audio (Apple Sound Chip)
 	//========================================================================
-	// ASC register bus not yet decoded; tie off its inputs for now.
+	// Sample-rate enable (~22.257 kHz). Divisor assumes the PLL system clock;
+	// adjust SND_DIV once the PLL is regenerated for real clocks.
+	localparam SND_DIV = 2247;                   // ~50 MHz / 22257
+	reg [11:0] snd_cnt; reg snd_ce;
+	always @(posedge clk_sys) begin
+		if (reset) begin snd_cnt <= 0; snd_ce <= 0; end
+		else if (snd_cnt == SND_DIV-1) begin snd_cnt <= 0; snd_ce <= 1'b1; end
+		else begin snd_cnt <= snd_cnt + 1'b1; snd_ce <= 1'b0; end
+	end
+
 	asc asc
 	(
 		.clk      (clk_sys),
 		.reset    (reset),
-		.sel      (1'b0),
-		.addr     (12'd0),
-		.din      (8'd0),
-		.dout     (),
-		.rw       (1'b1),
-		.ack      (),
+		.snd_ce   (snd_ce),
+		.sel      (sel_asc & cpu_ts),
+		.addr     (cpu_addr[11:0]),
+		.din      (cpu_dout[7:0]),
+		.dout     (asc_dout),
+		.rw       (cpu_rw),
+		.ack      (asc_ack),
+		.irq      (asc_irq),
 		.audio_l  (audio_l),
 		.audio_r  (audio_r)
 	);

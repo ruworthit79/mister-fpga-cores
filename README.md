@@ -17,11 +17,14 @@ A work-in-progress **Apple Macintosh Quadra 950** (Motorola 68040) core for the
 > - **Storage** — dual NCR 53C96 SCSI with READ(6)/WRITE(6) to the disk-image
 >   block interface (Icarus).
 > - **Input** — ADB keyboard/mouse translated from PS/2 (Icarus).
+> - **Sound** — Apple Sound Chip FIFO playback, 8-bit → signed-16 stereo (Icarus).
 >
-> It is not yet a full bootable system — the IOP host side (for ADB/floppy),
-> floppy and sound are still stubs, the SCSI/VIA still need validation against a
-> real ROM, and it targets a 68020-class CPU, not a true 040 (see
-> [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md)).
+> It is not yet a full bootable system. Remaining before a boot is realistic:
+> the **IOP host side** (to actually drive ADB/floppy), **floppy (SWIM)**,
+> validation of the SCSI/VIA/RTC details against a **real ROM**, and — the big
+> one — a **true 68040** (MMU + FPU + cache); today it runs a 68020-class TG68
+> stand-in. See [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md) and
+> [`docs/ROADMAP.md`](docs/ROADMAP.md) Phase 5.
 
 ## Why this is hard (read this first)
 

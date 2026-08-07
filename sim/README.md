@@ -37,6 +37,8 @@ What it proves: reset-vector fetch (SSP/PC), instruction fetch/execute, the
   ADB register-0 responses on Talk R0, and SRQ.
 - **`tb_scsi`** — NCR 53C96 (`rtl/io/scsi_ncr53c96.sv`): a READ(6) and WRITE(6)
   against a behavioral disk model through the hps_io block interface.
+- **`tb_asc`** — Apple Sound Chip (`rtl/audio/asc.sv`): FIFO playback with
+  offset-binary → signed-16 conversion on both channels.
 
 ```sh
 cd sim/iverilog && ./run.sh
@@ -46,6 +48,7 @@ cd sim/iverilog && ./run.sh
 # -> PASS: Caboose all checks passed
 # -> PASS: ADB all checks passed
 # -> PASS: SCSI all checks passed
+# -> PASS: ASC all checks passed
 ```
 
 ## Not covered here
