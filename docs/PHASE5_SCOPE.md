@@ -102,10 +102,25 @@ memory map (ROM + reset overlay + RAM window; I/O reads 0):
   the I/O stub returns 0, so the status bits it waits on never change.
 
 Takeaway: the CPU is not the immediate blocker — **peripheral liveness is**.
-The next 5.0 step is the *full-system* Verilator harness: verilate `quadra950`
-(with the converted CPU) so the already-verified VIA/RTC/SCSI/DAFB respond in
-the loop. The 68040 instruction gap (Level A) will surface after the probe
-loop clears, and is now directly observable in this harness.
+
+### BOOT RESULT (Verilator, FULL-system harness)
+
+`sim/verilog-full/boot_top.v` verilates the whole `quadra950` (converted CPU +
+all verified peripherals) with a DDR3 model preloaded with the ROM. Findings:
+
+1. **Unmapped access hung the bus.** The CPU ran the probe code (`$2E0x →
+   $2F1x → $2F5x → $316x → $46ax`) then hung after ~85 fetches on a supervisor
+   read to `$51001C00` — a device the ROM probes. The core had no bus-error
+   path; the Mac ROM probes hardware by triggering/catching bus errors.
+2. **Fix: bus error (TEA) on unmapped access** (cpu_wrapper `berr` + a
+   quadra950 watchdog). After it, the CPU no longer hangs: **~2.59M fetches**
+   with no stall, cycling through the probe routines (`$2F7C/$3162/$46ac/
+   $47xx/$4814`). Video generates frames throughout.
+3. **Still iterating the probe.** It hasn't reached machine init (`drew=0`):
+   converging past the probe needs the probed peripherals to return the exact
+   IDs/status bits the ROM checks. That — peripheral-response fidelity to the
+   ROM's probe — is the next full-system step, and is now directly debuggable
+   in this harness (trace CPU PC + the probed I/O addresses).
 ```
 
 5.1  040 personality & instruction gaps .............. S–M   [Level A]
