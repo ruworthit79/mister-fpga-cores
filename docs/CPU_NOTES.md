@@ -64,10 +64,46 @@ Each is independently testable.
   software package emulates them. No hardware FPU is present (`fpu_040.sv` is a
   Level-B anchor).
 
-Still open for Level A: **MOVE16** (`$F6xx`) — a real 16-byte block mover, so it
-must be implemented correctly (a silent no-op would corrupt data); and full
-**68040 exception stack frames** (format `$7` access-error frame), which mainly
-matters once the MMU can fault (Level B).
+Still open for Level A: **MOVE16** (`$F6xx`) and full **68040 exception stack
+frames** (format `$7` access-error frame; mainly matters once the MMU can fault,
+Level B). MOVE16 is deferred deliberately — see below.
+
+#### MOVE16 (`$F6xx`) — implementation analysis / ready-to-execute spec
+
+MOVE16 moves a 16-byte, 16-byte-aligned block. Unlike CINV/CPUSH it **cannot**
+be a no-op — a silent no-op would corrupt block copies. It must either execute
+correctly or keep its current clean line-F trap (the safe status quo). It was
+scoped in detail against the TG68 microcode and deferred to its own focused
+pass because it is novel microcode, not a contained edit, with no near-term
+payoff (full boot is gated earlier at the ROM's machine-ID scan — see
+`docs/BOOT_ANALYSIS.md`) and only blind (rebuild/sim) debugging available.
+
+Encoding (5 forms; `Ax`=`opcode(2:0)`):
+- `$F620|Ax` `(Ax)+,(Ay)+` — **primary form**, has a 2nd word `1yyy...` with
+  `Ay = sndOPC(14:12)`; both registers post-increment by 16.
+- `$F600/$F608/$F610/$F618 |Ax` — the four `(Ax)[+]`↔`(xxx).L` absolute forms
+  (opcode word + 32-bit address); only the `(Ax)+` variants post-increment.
+
+Recommended approach — **reuse the existing memory-to-memory MOVE datapath**,
+which already works for `MOVE.L (Ax)+,(Ay)+`:
+- The needed primitives were located: `get_2ndOPC` captures the 2nd word into
+  `sndOPC`; `dest_2ndHbits` selects the dest register from `sndOPC(14:12)`
+  (exactly `Ay`); `set_direct_data`/`use_direct_data` + `ea_data<=data_read`
+  pass the read longword to the write; `set(postadd)` does the `An += size`
+  writeback; `cmpm`/`op_AxAy` are compact mem-to-mem-with-post-increment
+  microstate templates.
+- Decode `(opcode and $FFF8)=$F620` in the `"1111"` case, `get_2ndOPC`, then run
+  the `MOVE.L (Ax)+,(Ay)+` read→write pass **four times** via a 2-bit counter
+  and two added microstates (`m16r`/`m16w`, already reserved in a scratch
+  branch), advancing the real PC past the 2 instruction words only after the
+  4th longword.
+- Caveat to document when landed: real 040 MOVE16 forces 16-byte alignment
+  (ignores `A3:0`); the 4×`MOVE.L` realization is bit-identical for the aligned
+  operands BlockMove uses, which is the normal case.
+- Verify with a GHDL testbench (drafted: `tb_move16` — preload 16 bytes, run
+  `MOVE16 (A0)+,(A1)+`, assert the destination matches and `A0`/`A1` advanced by
+  16). Must also re-pass `tb_cpu`/`tb_cpu_040`/`tb_cpu_040nop` and re-convert
+  cleanly through `ghdl synth`.
 
 ### 3. Evaluate the Apollo / 68080 ("AC68080") lineage
 Very capable (superscalar 68k with FPU/MMU), but **not openly licensed** for
