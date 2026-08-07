@@ -40,3 +40,7 @@ work-obj*.cf
 *.rom
 *.ROM
 *.bin
+
+# GHDL->Verilog CPU netlist (generated)
+sim/verilog-full/cpu_synth.v
+sim/verilog-full/*.log

@@ -51,6 +51,22 @@ cd sim/iverilog && ./run.sh
 # -> PASS: ASC all checks passed
 ```
 
+## Full-core simulation — GHDL→Verilog (`sim/verilog-full/`)
+
+The CPU is VHDL and the peripherals are Verilog, which normally blocks a
+single-simulator full-system run. `ghdl synth --out=verilog` sidesteps that by
+emitting a Verilog netlist of the CPU, so the **whole core** can run in Icarus.
+
+```sh
+cd sim/verilog-full && ./run.sh
+# convert_cpu.sh -> cpu_synth.v (generated, git-ignored)
+# -> PASS: converted CPU executed program; $100 = 0x12345678
+```
+
+`tb_cpu_v` proves the converted netlist is functionally equivalent (same boot
+program as the GHDL test). This is the enabler for Phase 5 milestone 5.0 —
+simulating the full core with the real ROM. See `docs/PHASE5_SCOPE.md`.
+
 ## Not covered here
 
 Full-system co-simulation mixes VHDL (the CPU) and Verilog (everything else).

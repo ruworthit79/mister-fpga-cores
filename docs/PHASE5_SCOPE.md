@@ -73,10 +73,13 @@ Effort bands are rough: **S** ≈ days, **M** ≈ 1–2 weeks, **L** ≈ 1–2 m
 **XL** ≈ multi-month, for one experienced FPGA/68k developer.
 
 ```
-5.0  Full-system mixed-language sim harness .......... M   (PREREQUISITE)
-       ModelSim/Questa (VHDL TG68 + Verilog system) or a Verilator+GHDL
-       co-sim; load the real ROM; observe boot. Nothing below is truly
-       verifiable end-to-end without this or hardware.
+5.0  Full-system sim harness ......................... S   (PREREQUISITE) ✅ enabler proven
+       SOLVED in-environment: `ghdl synth --out=verilog` converts the VHDL CPU
+       (TG68 + cpu_wrapper) to a Verilog netlist, so the WHOLE core (CPU +
+       Verilog peripherals + real ROM) simulates in Icarus - no ModelSim/Questa
+       needed. Flow + equivalence proof: sim/verilog-full/ (convert_cpu.sh
+       reproduces cpu_synth.v; tb_cpu_v boots the test program on the converted
+       core). Remaining: build the boot TB (memory map + ROM image + I/O stubs).
 
 5.1  040 personality & instruction gaps .............. S–M   [Level A]
        MOVE16; CINV/CPUSH/CACR (MOVEC) as functional no-ops; 040 exception
@@ -143,11 +146,12 @@ Level-A/B 040 is **feasible but not free**:
 
 ## 8. Validation strategy
 
-- **5.0 harness is non-negotiable** for end-to-end validation: GHDL (VHDL CPU)
-  and Icarus (Verilog system) are single-language, so today each block is
-  verified in isolation. A mixed-language simulator (ModelSim/Questa) or a
-  Verilator flow that ingests both — or real hardware — is required to watch
-  the ROM boot.
+- **5.0 harness — now available for free.** The mixed-language barrier is
+  broken: `ghdl synth --out=verilog` emits a Verilog netlist of the VHDL CPU,
+  which Icarus simulates alongside the Verilog peripherals. Proven in
+  `sim/verilog-full/` (the converted core boots the test program). So the full
+  core can be simulated here without ModelSim/Questa or hardware; the next step
+  is a boot TB that presents the Mac memory map + the real ROM image.
 - **Unit tests** we *can* do here: MMU table-walk against hand-built page
   tables and known virtual→physical vectors; FPU ops against reference vectors
   (e.g. compare to a software IEEE-754 model); MOVE16 semantics.
