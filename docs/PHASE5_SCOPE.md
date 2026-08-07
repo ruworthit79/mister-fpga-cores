@@ -76,10 +76,17 @@ Effort bands are rough: **S** ≈ days, **M** ≈ 1–2 weeks, **L** ≈ 1–2 m
 5.0  Full-system sim harness ......................... S   (PREREQUISITE) ✅ enabler proven
        SOLVED in-environment: `ghdl synth --out=verilog` converts the VHDL CPU
        (TG68 + cpu_wrapper) to a Verilog netlist, so the WHOLE core (CPU +
-       Verilog peripherals + real ROM) simulates in Icarus - no ModelSim/Questa
+       Verilog peripherals) simulates with open tools - no ModelSim/Questa
        needed. Flow + equivalence proof: sim/verilog-full/ (convert_cpu.sh
        reproduces cpu_synth.v; tb_cpu_v boots the test program on the converted
-       core). Remaining: build the boot TB (memory map + ROM image + I/O stubs).
+       core in Icarus).
+       Simulator choice: **Icarus is fine for short/targeted tests** but does
+       NOT scale to a full ROM boot - it chokes compiling the ~35k-line netlist
+       together with a 1 MB memory (a known iverilog large-array weakness; even
+       32-bit-word packing didn't help). Use **Verilator** (compiled C++ sim)
+       for the boot run. The boot harness (tb_boot.v) is written and
+       simulator-agnostic; the remaining 5.0 work is a Verilator runner + a
+       fuller memory map / peripheral models in the loop.
 
 5.1  040 personality & instruction gaps .............. S–M   [Level A]
        MOVE16; CINV/CPUSH/CACR (MOVEC) as functional no-ops; 040 exception

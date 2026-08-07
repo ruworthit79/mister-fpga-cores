@@ -13,6 +13,14 @@
 //     python3 -c "import sys;d=open(sys.argv[1],'rb').read();
 //       open('rom.hex','w').write('\n'.join('%02x'%b for b in d))" Quadra_950.ROM
 //     iverilog -g2012 -o boot.vvp cpu_synth.v tb_boot.v && vvp boot.vvp +ROM=rom.hex
+//
+//  TOOLING NOTE: Icarus handles the CONVERTED CPU fine for short tests
+//  (sim/verilog-full/tb_cpu_v passes), but it does NOT scale to a full ROM
+//  boot: it chokes compiling/elaborating the ~35k-line netlist together with a
+//  1 MB memory (iverilog is slow with large arrays; even 32-bit-word packing
+//  didn't help). Run this boot harness under **Verilator** (compiled C++ sim,
+//  which handles big memories and millions of cycles) instead of Icarus. The
+//  module is written to be simulator-agnostic; only the runner differs.
 //============================================================================
 `timescale 1ns/1ps
 

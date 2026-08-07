@@ -67,6 +67,13 @@ cd sim/verilog-full && ./run.sh
 program as the GHDL test). This is the enabler for Phase 5 milestone 5.0 —
 simulating the full core with the real ROM. See `docs/PHASE5_SCOPE.md`.
 
+**Simulator note:** Icarus runs the converted core fine for short tests, but it
+does *not* scale to a full ROM boot — it can't compile the ~35k-line netlist
+together with a 1 MB memory in practical time (an iverilog large-array
+limitation). `tb_boot.v` (the full boot harness) is written and
+simulator-agnostic, but should be run under **Verilator** (compiled C++ sim),
+not Icarus.
+
 ## Not covered here
 
 Full-system co-simulation mixes VHDL (the CPU) and Verilog (everything else).
