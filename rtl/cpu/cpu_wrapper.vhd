@@ -33,6 +33,8 @@ entity cpu_wrapper is
 		rw    : out std_logic;                       -- 1 = read, 0 = write
 		ts    : out std_logic;                       -- transfer start
 		ta    : in  std_logic;                       -- transfer acknowledge
+		berr  : in  std_logic := '0';                -- bus error (TEA): abort the
+		                                             -- cycle and take exception
 		fc    : out std_logic_vector(2 downto 0);    -- function code
 
 		ipl   : in  std_logic_vector(2 downto 0)     -- interrupt priority level
@@ -103,6 +105,7 @@ architecture rtl of cpu_wrapper is
 	signal clkena_e   : std_logic;                  -- memory-completion pulse
 	signal r_data     : std_logic_vector(15 downto 0);
 	signal ta_lat     : std_logic;                  -- TA captured across ce gaps
+	signal berr_pend  : std_logic;                  -- a bus error is being taken
 
 	signal mem_access : std_logic;
 	signal uds, lds   : std_logic;
@@ -118,7 +121,7 @@ begin
 		port map(
 			clk => clk, nReset => not reset, clkena_in => k_clkena,
 			data_in => k_data_in, IPL => ipl, IPL_autovector => '1',
-			berr => '0', CPU => "11",           -- 68020 mode
+			berr => berr_pend, CPU => "11",     -- 68020 mode; berr on TEA
 			addr_out => k_addr, data_write => k_data_w,
 			nWr => k_nWr, nUDS => k_nUDS, nLDS => k_nLDS,
 			busstate => k_busstate, longword => k_longword,
@@ -159,17 +162,19 @@ begin
 	begin
 		if rising_edge(clk) then
 			if reset = '1' then
-				s_state <= "00";
-				r_data  <= (others => '0');
+				s_state   <= "00";
+				r_data    <= (others => '0');
+				berr_pend <= '0';
 			elsif ce = '1' then
 				case s_state is
 					when "00" =>                    -- evaluate live busstate
+						berr_pend <= '0';
 						if mem_access = '1' and k_skip = '0' then
 							s_state <= "01";        -- begin a bus cycle
 						end if;
 					when "01" =>                    -- TS asserted
 						s_state <= "10";
-					when "10" =>                    -- sample TA, latch read data
+					when "10" =>                    -- sample TA (or bus error)
 						if ta = '1' or ta_lat = '1' then
 							if k_addr(1) = '0' then
 								r_data <= din(31 downto 16);
@@ -177,9 +182,13 @@ begin
 								r_data <= din(15 downto 0);
 							end if;
 							s_state <= "11";        -- ready -> advance next
+						elsif berr = '1' then       -- unmapped/timeout: bus error
+							berr_pend <= '1';        -- take TEA on the advance cycle
+							s_state   <= "11";
 						end if;
 					when others =>                  -- "11" advance the kernel
-						s_state <= "00";
+						berr_pend <= '0';
+						s_state   <= "00";
 				end case;
 			end if;
 		end if;

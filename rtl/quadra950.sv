@@ -122,10 +122,23 @@ module quadra950
 		.rw     (cpu_rw),
 		.ts     (cpu_ts),
 		.ta     (cpu_ta),
+		.berr   (cpu_berr),
 		.fc     (cpu_fc),
 
 		.ipl    (ipl)         // interrupt priority level from VIA/IOSB
 	);
+
+	// Bus watchdog: the Mac ROM probes hardware by triggering bus errors on
+	// absent devices. Any CPU access that goes unacknowledged for a while is an
+	// unmapped/absent location -> assert a bus error (TEA) so the CPU takes the
+	// exception instead of hanging. Mapped accesses ack within a few cycles.
+	reg [9:0] cpu_wd;
+	reg       cpu_berr;
+	always @(posedge clk_sys) begin
+		if (reset || !cpu_ts || cpu_ta) begin cpu_wd <= 0; cpu_berr <= 1'b0; end
+		else if (cpu_wd >= 10'd200)      cpu_berr <= 1'b1;   // timeout -> bus error
+		else                             cpu_wd  <= cpu_wd + 1'b1;
+	end
 
 	//========================================================================
 	//  Address decode (Quadra 950 map - see docs/MEMORY_MAP.md)
