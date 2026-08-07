@@ -2,9 +2,17 @@
 //  Macintosh Quadra 950 (68040) for MiSTer - top level (emu) wrapper
 //
 //  This is the framework-facing wrapper. It instantiates hps_io, the PLL and
-//  the actual system in rtl/quadra950.sv. At this stage the system core is a
-//  documented scaffold: it wires the framework correctly but the CPU and
-//  custom chips are stubs (see docs/ROADMAP.md).
+//  the actual system in rtl/quadra950.sv. The CPU (TG68, 68020-class with a
+//  Level-A 68040 personality) and the custom chips (MCU, VIA, DAFB, ASC, SCSI,
+//  Caboose RTC/PRAM, ADB) are implemented and simulation-verified. See
+//  docs/HARDWARE.md for what a hardware build does and does NOT do yet, and
+//  docs/ROADMAP.md / docs/BOOT_ANALYSIS.md for the boot state.
+//
+//  CLOCK PLAN (docs/HARDWARE.md): clk_sys = 50 MHz -> DAFB pixel enable
+//  clk/2 = 25 MHz (640x480), ASC sample ~22.25 kHz, emulated CPU = clk/CPU_DIV.
+//  The PLL frequency spec (rtl/pll/pll_0002.v) is set to 50 MHz and is
+//  frequency-driven (Quartus computes the counters), but has NOT been compiled
+//  in Quartus here -- verify PLL lock + timing closure on the first build.
 //
 //  This program is free software; you can redistribute it and/or modify it
 //  under the terms of the GNU General Public License as published by the Free
@@ -147,8 +155,9 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 //////////////////////////////////////////////////////////////////
 //  Clocks
 //////////////////////////////////////////////////////////////////
-// NOTE: the PLL settings copied from the template are placeholders. Before a
-// real build, regenerate rtl/pll for the Quadra system/CPU/video clocks.
+// clk_sys = 50 MHz (rtl/pll, frequency-driven altera_pll). Drives the whole
+// core (CPU via CPU_DIV, DAFB pixel enable clk/2, ASC, and DDRAM_CLK). See the
+// clock-plan note in the header and docs/HARDWARE.md.
 wire clk_sys;
 wire pll_locked;
 pll pll
