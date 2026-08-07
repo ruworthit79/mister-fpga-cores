@@ -12,6 +12,13 @@ ghdl -a $STD $RTL/tg68k/TG68K_Pack.vhd
 ghdl -a $STD $RTL/tg68k/TG68K_ALU.vhd
 ghdl -a $STD $RTL/tg68k/TG68KdotC_Kernel.vhd
 ghdl -a $STD $RTL/cpu_wrapper.vhd
-ghdl -a $STD tb_cpu.vhd
-ghdl -e $STD tb_cpu
-ghdl -r $STD tb_cpu --stop-time=2ms
+
+# Each testbench self-checks and calls std.env.finish; a failed assertion aborts
+# with a non-zero exit (set -e). Filter the synopsys reset-time metavalue noise.
+FILTER='CONV_INTEGER|std_logic_arith|metavalue|numeric_std'
+for tb in tb_cpu tb_cpu_040 tb_cpu_040nop; do
+	ghdl -a $STD $tb.vhd
+	ghdl -e $STD $tb
+	echo "--- $tb ---"
+	ghdl -r $STD $tb --stop-time=2ms 2>&1 | grep -Eiv "$FILTER"
+done

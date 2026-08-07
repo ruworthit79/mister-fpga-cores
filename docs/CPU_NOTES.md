@@ -36,12 +36,38 @@ This validates the entire rest of the core (memory, video, I/O, storage) while
 the CPU question is worked separately. **This is the milestone the scaffold
 targets.**
 
-### 2. Extend toward 68040 incrementally
+### 2. Extend toward 68040 incrementally *(Level A in progress)*
 On top of a working 020/030 core, add, in priority order:
 1. **MMU** (biggest compatibility unlock — enables modern System versions, VM).
 2. **FPU** (unlocks scientific/graphics software; huge but self-contained).
 3. **Cache + burst bus semantics** (performance + timing fidelity).
 Each is independently testable.
+
+**Level-A "040 personality" landed in the TG68 kernel** (see
+`docs/PHASE5_SCOPE.md` for the full roadmap; all changes are GHDL-verified in
+`sim/ghdl/`):
+
+- **MOVEC 68040 control registers.** The kernel's MOVEC whitelist and register
+  file were extended with TC (`$003`), ITT0/ITT1 (`$004/$005`), DTT0/DTT1
+  (`$006/$007`), MMUSR (`$805`), URP (`$806`), SRP (`$807`). They store and
+  read back the written value (round-trip verified by `tb_cpu_040`), which the
+  MMU register interface (roadmap 5.2a) and the ROM's MMU bring-up require.
+  Translation itself stays **transparent (1:1)** for Level A regardless of TC —
+  no table walk yet (that is Level B, `mmu_040.sv`).
+- **68040 cache/MMU control instructions as no-ops.** `$F4xx` (CINV/CPUSH) and
+  `$F5xx` (PFLUSH/PTEST) now execute as privileged single-word no-ops instead
+  of taking a line-F trap — correct here because there is no cache and the MMU
+  is transparent. User-mode use still raises a privilege violation, like a real
+  040. Verified by `tb_cpu_040nop`.
+- **LC040 FPU personality.** The FPU F-line opcodes (`$F2xx`/`$F3xx`) still take
+  the line-F (vector 11) trap, which is exactly the LC040 behaviour: the FPSP
+  software package emulates them. No hardware FPU is present (`fpu_040.sv` is a
+  Level-B anchor).
+
+Still open for Level A: **MOVE16** (`$F6xx`) — a real 16-byte block mover, so it
+must be implemented correctly (a silent no-op would corrupt data); and full
+**68040 exception stack frames** (format `$7` access-error frame), which mainly
+matters once the MMU can fault (Level B).
 
 ### 3. Evaluate the Apollo / 68080 ("AC68080") lineage
 Very capable (superscalar 68k with FPU/MMU), but **not openly licensed** for

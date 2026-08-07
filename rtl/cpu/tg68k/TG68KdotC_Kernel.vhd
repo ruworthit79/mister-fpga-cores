@@ -356,7 +356,20 @@ architecture logic of TG68KdotC_Kernel is
 	signal CACR					: std_logic_vector(3 downto 0);
 	signal DFC					: std_logic_vector(2 downto 0);
 	signal SFC					: std_logic_vector(2 downto 0);
-	
+
+	-- 68040 control registers (MOVEC): stored so the ROM/OS can round-trip them.
+	-- The MMU stays 1:1 transparent regardless of TC/TTR contents (Level A), but
+	-- writing then reading a register back must return the written value or the
+	-- ROM's MMU setup/verify code faults.
+	signal TC					: std_logic_vector(31 downto 0);  -- $003
+	signal ITT0					: std_logic_vector(31 downto 0);  -- $004
+	signal ITT1					: std_logic_vector(31 downto 0);  -- $005
+	signal DTT0					: std_logic_vector(31 downto 0);  -- $006
+	signal DTT1					: std_logic_vector(31 downto 0);  -- $007
+	signal MMUSR				: std_logic_vector(31 downto 0);  -- $805
+	signal URP					: std_logic_vector(31 downto 0);  -- $806
+	signal SRP					: std_logic_vector(31 downto 0);  -- $807
+
 
 	signal set					: bit_vector(lastOpcBit downto 0);
 	signal set_exec			: bit_vector(lastOpcBit downto 0);
@@ -3101,7 +3114,21 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 --				
 ---- 1111 ----------------------------------------------------------------------------		
 			WHEN "1111" =>
-				IF cpu(1)='1' AND opcode(8 downto 6)="100" THEN --cpSAVE
+				-- 68040 cache ($F4xx: CINV/CPUSH) and MMU ($F5xx: PFLUSH/PTEST)
+				-- control instructions. This core has no cache and uses
+				-- transparent (1:1) MMU translation, so they are architecturally
+				-- valid single-word NO-OPS: consume the opcode word and continue,
+				-- with no register or memory side effect. They are privileged, so
+				-- raise a privilege violation in user mode exactly like a real
+				-- 040. FPU F-line ops ($F2xx/$F3xx) fall through to trap_1111
+				-- below (LC040 personality: software-emulated by the FPSP).
+				IF cpu(1)='1' AND (opcode(11 downto 8)="0100" OR opcode(11 downto 8)="0101") THEN
+					IF SVmode='0' THEN
+						trap_priv <= '1';
+						trapmake <= '1';
+					END IF;
+					-- supervisor: no-op (fall through to fetch the next opcode)
+				ELSIF cpu(1)='1' AND opcode(8 downto 6)="100" THEN --cpSAVE
 					IF opcode(5 downto 4)/="00" AND opcode(5 downto 3)/="011" AND
 					   (opcode(5 downto 3)/="111" OR opcode(2 downto 1)="00") THEN --ea illegal modes
 						IF opcode(11 downto 9)/="000" THEN
@@ -3840,8 +3867,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				WHEN movec1 =>		-- MOVEC
 					set(briefext) <= '1';
 					set_writePCbig <='1';
-					IF (brief(11 downto 0)=X"000" OR brief(11 downto 0)=X"001" OR brief(11 downto 0)=X"800" OR brief(11 downto 0)=X"801") OR 
-					   (cpu(1)='1' AND (brief(11 downto 0)=X"002" OR brief(11 downto 0)=X"802" OR brief(11 downto 0)=X"803" OR brief(11 downto 0)=X"804")) THEN
+					IF (brief(11 downto 0)=X"000" OR brief(11 downto 0)=X"001" OR brief(11 downto 0)=X"800" OR brief(11 downto 0)=X"801") OR
+					   (cpu(1)='1' AND (brief(11 downto 0)=X"002" OR brief(11 downto 0)=X"802" OR brief(11 downto 0)=X"803" OR brief(11 downto 0)=X"804" OR
+					   -- 68040 control registers: TC/ITTx/DTTx ($003-$007), MMUSR/URP/SRP ($805-$807)
+					   brief(11 downto 0)=X"003" OR brief(11 downto 0)=X"004" OR brief(11 downto 0)=X"005" OR brief(11 downto 0)=X"006" OR brief(11 downto 0)=X"007" OR
+					   brief(11 downto 0)=X"805" OR brief(11 downto 0)=X"806" OR brief(11 downto 0)=X"807")) THEN
 						IF opcode(0)='0' THEN
 							set(Regwrena) <= '1';
 						END IF;
@@ -4004,23 +4034,39 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 -----------------------------------------------------------------------------
 -- MOVEC
 -----------------------------------------------------------------------------
-  process (clk, SFC, DFC, VBR, CACR, brief)
+  process (clk, SFC, DFC, VBR, CACR, brief, TC, ITT0, ITT1, DTT0, DTT1, MMUSR, URP, SRP)
   begin
 	-- all other hexa codes should give illegal isntruction exception
 	if rising_edge(clk) then
 	  if Reset = '1' then
 		VBR <= (others => '0');
 		CACR <= (others => '0');
+		TC   <= (others => '0');
+		ITT0 <= (others => '0');
+		ITT1 <= (others => '0');
+		DTT0 <= (others => '0');
+		DTT1 <= (others => '0');
+		MMUSR<= (others => '0');
+		URP  <= (others => '0');
+		SRP  <= (others => '0');
 	  elsif clkena_lw = '1' and exec(movec_wr) = '1' then
 		case brief(11 downto 0) is
 		  when X"000" => SFC <= reg_QA(2 downto 0); -- SFC -- 68010+
 		  when X"001" => DFC <= reg_QA(2 downto 0); -- DFC -- 68010+
 		  when X"002" => CACR <= reg_QA(3 downto 0); -- 68020+
+		  when X"003" => TC   <= reg_QA;             -- 68040 translation control
+		  when X"004" => ITT0 <= reg_QA;             -- 68040 instr transparent 0
+		  when X"005" => ITT1 <= reg_QA;             -- 68040 instr transparent 1
+		  when X"006" => DTT0 <= reg_QA;             -- 68040 data transparent 0
+		  when X"007" => DTT1 <= reg_QA;             -- 68040 data transparent 1
 		  when X"800" => NULL; -- USP -- 68010+
 		  when X"801" => VBR <= reg_QA; -- 68010+
 		  when X"802" => NULL; -- CAAR -- 68020+
 		  when X"803" => NULL; -- MSP -- 68020+
 		  when X"804" => NULL; -- isP -- 68020+
+		  when X"805" => MMUSR<= reg_QA;             -- 68040 MMU status
+		  when X"806" => URP  <= reg_QA;             -- 68040 user root pointer
+		  when X"807" => SRP  <= reg_QA;             -- 68040 supervisor root ptr
 		  when others => NULL;
 		end case;
 	  end if;
@@ -4031,10 +4077,17 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		when X"000" => movec_data <= "00000000000000000000000000000" & SFC;
 		when X"001" => movec_data <= "00000000000000000000000000000" & DFC;
 	  when X"002" => movec_data <= "0000000000000000000000000000" & (CACR AND "0011");
-
-	  when X"801" => 
+	  when X"003" => movec_data <= TC;
+	  when X"004" => movec_data <= ITT0;
+	  when X"005" => movec_data <= ITT1;
+	  when X"006" => movec_data <= DTT0;
+	  when X"007" => movec_data <= DTT1;
+	  when X"801" =>
 		movec_data <= VBR;
 		--end if;
+	  when X"805" => movec_data <= MMUSR;
+	  when X"806" => movec_data <= URP;
+	  when X"807" => movec_data <= SRP;
 	  when others => NULL;
 	end case;
   end process;
