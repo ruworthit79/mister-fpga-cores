@@ -44,3 +44,7 @@ work-obj*.cf
 # GHDL->Verilog CPU netlist (generated)
 sim/verilog-full/cpu_synth.v
 sim/verilog-full/*.log
+
+# Verilator build artifacts
+sim/verilog-full/obj_dir/
+sim/verilog-full/boot_sim

@@ -81,12 +81,32 @@ Effort bands are rough: **S** ≈ days, **M** ≈ 1–2 weeks, **L** ≈ 1–2 m
        reproduces cpu_synth.v; tb_cpu_v boots the test program on the converted
        core in Icarus).
        Simulator choice: **Icarus is fine for short/targeted tests** but does
-       NOT scale to a full ROM boot - it chokes compiling the ~35k-line netlist
-       together with a 1 MB memory (a known iverilog large-array weakness; even
-       32-bit-word packing didn't help). Use **Verilator** (compiled C++ sim)
-       for the boot run. The boot harness (tb_boot.v) is written and
-       simulator-agnostic; the remaining 5.0 work is a Verilator runner + a
-       fuller memory map / peripheral models in the loop.
+       NOT scale to a full ROM boot (chokes on the ~35k-line netlist + a 1 MB
+       memory). **Verilator** (compiled C++) does - and the real ROM now runs:
+       see BOOT RESULT below. Runner: sim/verilog-full/ (sim_main.cpp +
+       run_verilator.sh; obj_dir/boot_sim built by Verilator).
+```
+
+### BOOT RESULT (Verilator, CPU-only harness)
+
+Running the **real Quadra 950 ROM** through the converted TG68 CPU with a C++
+memory map (ROM + reset overlay + RAM window; I/O reads 0):
+
+- Reset vector read (SP@0/PC@4), `jmp` to `$8C`, into main boot at `$4052`.
+- **ROM overlay clears** on the first `$40` access, then RAM appears at `$0`.
+- **Reaches VIA hardware init** (`$50F0_xxxx`) after ~500 cycles.
+- Runs **~1.9M bus cycles with ZERO exceptions** — the 68020-class TG68 does
+  *not* fault on a 68040-only instruction in this early path.
+- Then settles into a **hardware-probe / polling loop** (ROM `$2F5A` walks a
+  device-descriptor table; `$46C0` bit-bangs a VIA register): it spins because
+  the I/O stub returns 0, so the status bits it waits on never change.
+
+Takeaway: the CPU is not the immediate blocker — **peripheral liveness is**.
+The next 5.0 step is the *full-system* Verilator harness: verilate `quadra950`
+(with the converted CPU) so the already-verified VIA/RTC/SCSI/DAFB respond in
+the loop. The 68040 instruction gap (Level A) will surface after the probe
+loop clears, and is now directly observable in this harness.
+```
 
 5.1  040 personality & instruction gaps .............. S–M   [Level A]
        MOVE16; CINV/CPUSH/CACR (MOVEC) as functional no-ops; 040 exception

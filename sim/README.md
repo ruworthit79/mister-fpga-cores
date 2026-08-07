@@ -70,9 +70,20 @@ simulating the full core with the real ROM. See `docs/PHASE5_SCOPE.md`.
 **Simulator note:** Icarus runs the converted core fine for short tests, but it
 does *not* scale to a full ROM boot — it can't compile the ~35k-line netlist
 together with a 1 MB memory in practical time (an iverilog large-array
-limitation). `tb_boot.v` (the full boot harness) is written and
-simulator-agnostic, but should be run under **Verilator** (compiled C++ sim),
-not Icarus.
+limitation). Use **Verilator** (compiled C++) for boot-scale runs.
+
+### Real ROM boot (Verilator) — `sim_main.cpp` + `run_verilator.sh`
+
+```sh
+cd sim/verilog-full && ./run_verilator.sh /path/to/Quadra_950.ROM 8000000
+```
+
+Executes the **real Quadra 950 ROM** through the converted CPU with a C++ Mac
+memory map. Result: the ROM reads its reset vector, clears the ROM overlay,
+reaches VIA hardware init, and runs ~1.9M cycles with **zero exceptions**,
+then spins in the ROM's hardware-probe loop (I/O reads return 0, so polled
+status bits never change). Next step: verilate the full `quadra950` so the
+real VIA/RTC/SCSI/DAFB respond in the loop. See `docs/PHASE5_SCOPE.md`.
 
 ## Not covered here
 
