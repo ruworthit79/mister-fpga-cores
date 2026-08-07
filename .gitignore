@@ -50,3 +50,6 @@ sim/verilog-full/obj_dir/
 sim/verilog-full/boot_sim
 sim/verilog-full/boot_full
 sim/verilog-full/rom*.hex
+
+# Claude Code agent worktrees (transient, harness-managed)
+.claude/
