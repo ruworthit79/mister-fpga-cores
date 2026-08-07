@@ -13,8 +13,12 @@ set_global_assignment -name SDC_FILE Quadra950.sdc
 # System integration
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/quadra950.sv
 
-# CPU (integration wrapper; drop the chosen 68k core sources in rtl/cpu/)
-set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/cpu_wrapper.sv
+# CPU: TG68 kernel (VHDL, LGPLv3) + bus adapter, instantiated by quadra950.sv
+# (Quartus mixed-language: a Verilog module may instantiate the VHDL entity.)
+set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K_Pack.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K_ALU.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68KdotC_Kernel.vhd
+set_global_assignment -name VHDL_FILE rtl/cpu/cpu_wrapper.vhd
 
 # Chipset - real Quadra 900/950 custom ICs
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/chipset/mcu.sv      ;# Memory Control Unit

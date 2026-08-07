@@ -27,7 +27,9 @@ module iobus
 	output     [2:0]  ipl
 );
 
-	assign ipl = 3'b000;   // TODO: prioritise VIA/SCSI/SONIC/IOP interrupts.
+	// IPL is active-low on the 68k (matching the TG68 kernel): "111" = no
+	// interrupt. Driving 0 here would signal a constant level-7 NMI.
+	assign ipl = 3'b111;   // TODO: prioritise VIA/SCSI/SONIC/IOP interrupts.
 
 	always @(posedge clk) begin
 		ack  <= 1'b0;

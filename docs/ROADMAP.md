@@ -14,12 +14,20 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 - ✅ Documented stubs for every custom chip (correct silicon names)
 - ✅ Placeholder video path (real VGA sync + test pattern)
 
-## Phase 1 — CPU + boot ROM 🚧
-- 🚧 CPU integration point (`rtl/cpu/cpu_wrapper.sv`) — bus contract defined
-- ⬜ Drop in a 68020/030-class open core (TG68K/ao68k) — see [CPU_NOTES.md](CPU_NOTES.md)
-- ⬜ `mcu`: real DDR3 read/write engine, 32↔64-bit packing, bank decode
-- ⬜ Load a Quadra 950 ROM image into DDR3 (`ioctl` index 0) + reset overlay
-- ⬜ **Milestone:** CPU fetches and executes from ROM; early POST visible
+## Phase 1 — CPU + boot ROM 🚧 (mostly done, sim-verified)
+- ✅ CPU integration + bus adapter (`rtl/cpu/cpu_wrapper.vhd`) wrapping the TG68
+  kernel; 16-bit clkena bus → 32-bit TS/TA. **GHDL-verified**: the real core
+  boots (reset vectors), executes, and stores to memory (`sim/ghdl/`).
+- ✅ Vendored TG68KdotC kernel (LGPLv3) as the 68020-class stand-in — see [CPU_NOTES.md](CPU_NOTES.md)
+- ✅ `mcu`: DDR3 read/write engine, 32↔64-bit packing, byte-enable writes, ROM
+  image load via `ioctl`. **Icarus-verified** (`sim/iverilog/`).
+- ✅ Reset ROM overlay routing (ROM served at low addresses after reset)
+- ✅ Interconnect wires CPU + MCU with the real memory-map decode (elaborates)
+- 🚧 **Milestone (CPU fetches/executes from ROM):** both halves proven in sim
+  against the shared TS/TA contract; full mixed-language (VHDL+Verilog) system
+  co-sim needs ModelSim/Questa or Quartus (not possible with GHDL/Icarus alone).
+- ⬜ Remaining before hardware: regenerate the PLL for real clocks; 33 MHz `ce`
+  divider; clear the overlay on the VIA bit; DDR3 burst (line) reads for speed.
 
 ## Phase 2 — Video + minimal I/O ⬜
 - ⬜ `dafb`: programmable CRTC, real VRAM, 1/2/4/8-bpp + CLUT/RAMDAC

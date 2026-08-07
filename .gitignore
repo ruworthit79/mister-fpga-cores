@@ -20,6 +20,18 @@ PLLJ_PLLSPE_INFO.txt
 # Keep the releases folder but not built cores
 releases/*.rbf
 
+# Simulation build artifacts
+sim/**/work-obj*.cf
+sim/**/*.vvp
+sim/**/*.o
+sim/ghdl/tb_cpu
+sim/iverilog/tb_mcu
+*.vcd
+*.ghw
+
 # Editor / OS
 *.swp
 .DS_Store
+
+# GHDL work library anywhere
+work-obj*.cf

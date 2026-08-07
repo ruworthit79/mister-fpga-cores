@@ -3,11 +3,16 @@
 A work-in-progress **Apple Macintosh Quadra 950** (Motorola 68040) core for the
 [MiSTer FPGA](https://mister-devel.github.io/MkDocs_MiSTer/) platform.
 
-> **Status: early scaffold (Phase 0).** This repository currently contains an
-> accurate hardware specification, the MiSTer framework wiring, the system
+> **Status: Phase 1 in progress (CPU + memory, sim-verified).** The repository
+> has an accurate hardware spec, the MiSTer framework wiring, the system
 > interconnect with the real Quadra 950 memory map, and documented stubs for
-> every custom chip. **There is no working CPU yet** — see why below. It does
-> not boot anything today; it builds toward a system that will.
+> every custom chip. A 68020-class CPU (TG68) is now integrated through a
+> `TS`/`TA` bus adapter, and a real MCU↔DDR3 memory controller with ROM loading
+> is in place. **Both are verified in simulation** (see [`sim/`](sim/)): the
+> real CPU boots and executes, and the memory controller loads and serves a ROM
+> image. It is not yet a full bootable system — the peripherals (video, VIA,
+> SCSI, ADB) are still stubs, and it targets a 68020-class CPU, not a true 040
+> (see [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md)).
 
 ## Why this is hard (read this first)
 
@@ -15,10 +20,10 @@ The Quadra 950 is one of the most ambitious targets on MiSTer, for two reasons:
 
 1. **The 68040 CPU.** Unlike the 68000 (which has mature open cores), there is
    **no mature, open-source, synthesizable 68040** with its on-die FPU, dual
-   MMUs and caches. That IP is the crux of the whole project. See
-   [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md) for the realistic options (the plan
-   is to bring the system up on a 68020/030-class core first, then extend
-   toward the 040).
+   MMUs and caches. That IP is the crux of the whole project. The current
+   approach (per [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md)) brings the system up
+   on a 68020-class core (**TG68**, now integrated and sim-verified) and extends
+   toward the 040 (MMU → FPU → cache/burst) from there.
 2. **The system.** DAFB video, dual NCR 53C96 SCSI, Enhanced ASC + DFAC sound,
    SWIM floppy, ADB via an IOP, NuBus/YANCC, and the MCU/JDB/Relayer glue —
    each is a real chip that has to be re-implemented. Plus a 1 MB Apple ROM you
@@ -49,12 +54,14 @@ files.qip               RTL source manifest (add files here, not via Quartus IDE
 sys/                    MiSTer framework (copied as-is; updateable)
 rtl/
   quadra950.sv          system interconnect + address decode
-  cpu/cpu_wrapper.sv    68040 bus adapter / CPU integration point
-  chipset/              mcu, iobus (JDB+Relayer), via, caboose, yancc
+  cpu/cpu_wrapper.vhd   TG68 bus adapter (16-bit clkena -> 32-bit TS/TA)
+  cpu/tg68k/            vendored TG68KdotC kernel (LGPLv3)
+  chipset/              mcu (DDR3), iobus (JDB+Relayer), via, caboose, yancc
   video/dafb.sv         Direct Access Frame Buffer (video)
   audio/asc.sv          Enhanced Apple Sound Chip (+DFAC)
   io/                   scsi_ncr53c96, swim, adb, iop, sonic
   pll/                  PLL (placeholder settings; regenerate before real build)
+sim/                    GHDL (CPU) + Icarus (MCU) testbenches — see sim/README.md
 releases/               built .rbf files go here (core_YYYYMMDD.rbf)
 docs/                   specification and plan
 ```
@@ -76,4 +83,5 @@ You must supply your own dump; it will be loaded via the OSD.
 ## License
 
 RTL authored here is GPLv2 (matching the MiSTer framework in `sys/`). The
-`sys/` framework retains its upstream MiSTer license.
+`sys/` framework retains its upstream MiSTer license. The vendored TG68 core in
+`rtl/cpu/tg68k/` is © Tobias Gubener, licensed **LGPLv3** (headers retained).

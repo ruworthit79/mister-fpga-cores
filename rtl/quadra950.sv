@@ -88,7 +88,11 @@ module quadra950
 	wire        cpu_ts;      // transfer start
 	wire        cpu_ta;      // transfer acknowledge (to CPU)
 	wire  [2:0] cpu_fc;      // function code (user/supervisor, data/program)
-	wire        cpu_ce;      // 33 MHz clock enable
+	wire  [2:0] ipl;         // interrupt priority level (from iobus), active low
+	// 33 MHz clock enable. Tied high for now: the CPU runs at the system clock
+	// (the bus adapter requires ce high until a real 33 MHz divider is added).
+	// TODO: drive from a divider off the PLL to emulate the true 33 MHz rate.
+	wire        cpu_ce = 1'b1;
 
 	cpu_wrapper cpu
 	(
@@ -123,6 +127,11 @@ module quadra950
 	wire sel_dafb  = (cpu_addr[31:24] == 8'hF9);
 	wire sel_nubus = (cpu_addr[31:28] == 4'h6) || (cpu_addr[31:28] == 4'hF);
 
+	// The MCU serves both ROM (incl. overlay) and normal RAM out of DDR3.
+	wire to_rom = sel_rom;                       // $40xxxxxx or overlaid low mem
+	wire to_ram = sel_ram & ~rom_overlay;        // normal RAM (overlay cleared)
+	wire sel_mem = to_rom | to_ram;
+
 	// ROM overlay: at reset the ROM is mapped over low memory until the OS
 	// clears the overlay bit (via VIA). Cleared on first write to high RAM.
 	reg rom_overlay;
@@ -151,7 +160,8 @@ module quadra950
 		.cpu_dout   (ram_dout),
 		.cpu_be     (cpu_be),
 		.cpu_rw     (cpu_rw),
-		.cpu_req    (cpu_ts & (sel_ram & ~rom_overlay)),
+		.cpu_req    (cpu_ts & sel_mem),
+		.rom_sel    (to_rom),
 		.cpu_ack    (ram_ack),
 
 		// ROM image load path
@@ -178,7 +188,6 @@ module quadra950
 	//========================================================================
 	wire [31:0] io_dout;
 	wire        io_ack;
-	wire  [2:0] ipl;
 
 	iobus iobus
 	(
@@ -236,10 +245,17 @@ module quadra950
 	//========================================================================
 	//  Audio (Apple Sound Chip)
 	//========================================================================
+	// ASC register bus not yet decoded; tie off its inputs for now.
 	asc asc
 	(
 		.clk      (clk_sys),
 		.reset    (reset),
+		.sel      (1'b0),
+		.addr     (12'd0),
+		.din      (8'd0),
+		.dout     (),
+		.rw       (1'b1),
+		.ack      (),
 		.audio_l  (audio_l),
 		.audio_r  (audio_r)
 	);

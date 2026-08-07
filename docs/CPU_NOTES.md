@@ -2,7 +2,7 @@
 
 This is the single hardest part of the project and the main reason a Quadra 950
 core does not already exist for MiSTer. Read this before touching
-`rtl/cpu/cpu_wrapper.sv`.
+`rtl/cpu/cpu_wrapper.vhd`.
 
 ## Why the 68040 is hard
 
@@ -21,10 +21,13 @@ Writing a correct, fast 040 from scratch is a multi-year effort.
 
 ## Options, most realistic first
 
-### 1. Bring the system up on a 68020/030-class core *(recommended first)*
-Drop in an existing open 68k core (the **TG68K / ao68k** family, or a `moidore`
-/ `N68K`-style core) to get the *system* alive: boot ROM executing, DAFB video,
-VIA/IOP/ADB, SCSI boot. Accept that:
+### 1. Bring the system up on a 68020/030-class core *(DONE — current state)*
+This is the path taken. The **TG68KdotC** kernel (LGPLv3) is vendored in
+`rtl/cpu/tg68k/` and wrapped by `rtl/cpu/cpu_wrapper.vhd`, which adapts its
+16-bit `clkena`-driven bus to the core's 32-bit `TS`/`TA` bus. It is
+GHDL-verified booting and executing (see `sim/ghdl/`). Running in CPU="11"
+(68020) mode gives 32-bit addressing, 32-bit MUL/DIV, and bit-field ops.
+Accept that:
 - No FPU-dependent software.
 - No MMU → no A/UX, no protected/virtual memory; classic Mac OS mostly works
   because it ran on MMU-less 020 machines too (with the right ROM/OS combo).
@@ -45,7 +48,7 @@ Very capable (superscalar 68k with FPU/MMU), but **not openly licensed** for
 arbitrary reuse. **Licensing must be cleared before any use** — do not assume
 it is usable just because it exists.
 
-## The bus adapter (`cpu_wrapper.sv`)
+## The bus adapter (`cpu_wrapper.vhd`)
 
 Whatever core is chosen, `cpu_wrapper` translates it to the simplified
 68040-style synchronous bus the rest of the core expects:
