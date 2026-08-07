@@ -20,6 +20,11 @@ set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K_ALU.vhd
 set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68KdotC_Kernel.vhd
 set_global_assignment -name VHDL_FILE rtl/cpu/cpu_wrapper.vhd
 
+# Phase 5 (68040) interface anchors - not yet wired into cpu_wrapper.
+# See docs/PHASE5_SCOPE.md. Uncomment when integration begins.
+# set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/mmu_040.sv
+# set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/fpu_040.sv
+
 # Chipset - real Quadra 900/950 custom ICs
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/chipset/mcu.sv      ;# Memory Control Unit
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/chipset/iobus.sv    ;# JDB + Relayer I/O bus adapter

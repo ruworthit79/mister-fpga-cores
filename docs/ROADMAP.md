@@ -79,11 +79,17 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 - ⬜ Confirm the 2nd SCSI channel address; regenerate the PLL; set CPU_DIV for
   the real 33 MHz rate
 
-## Phase 5 — Toward real 68040 fidelity ⬜
-- ⬜ MMU (enables modern System versions / VM / A/UX)
-- ⬜ FPU (IEEE-754) — large, self-contained
-- ⬜ Cache + burst bus semantics; satisfy the stock 950 ROM (Gestalt = 26)
-- ⬜ NuBus (`yancc`) + card emulation, Ethernet (`sonic`) — optional, low priority
+## Phase 5 — Toward a real 68040 🚧 (scoped)
+Full scoping in **[PHASE5_SCOPE.md](PHASE5_SCOPE.md)**. Interface anchors added:
+`rtl/cpu/mmu_040.sv` (transparent-1:1 stub = the Level-A starting point) and
+`rtl/cpu/fpu_040.sv` (68LC040 "no FPU" stub). Summary of the path:
+- ⬜ **5.0** Full-system mixed-language sim harness (prerequisite for boot)
+- ⬜ **Level A** — 040 personality (MOVE16, cache-instr no-ops, 040 exception
+  frames, CPU-type reporting) + MMU register interface & transparent
+  translation + LC040 FPU → boot Mac OS non-VM
+- ⬜ **Level B** — hardware FPU (+FPSP trap) + real MMU table-walk/ATC → apps + VM
+- ⬜ **Level C** — 4KB+4KB caches + snooping + burst bus → fidelity / A/UX
+- ⬜ NuBus (`yancc`) + Ethernet (`sonic`) — optional, low priority
 
 ---
 

@@ -58,6 +58,7 @@ rather than pretending to be a finished core.
 | [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md) | The 68040 problem and how we approach it |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phased build plan |
 | [`docs/ROM_VALIDATION.md`](docs/ROM_VALIDATION.md) | I/O map + reset verified against a real Quadra 950 ROM |
+| [`docs/PHASE5_SCOPE.md`](docs/PHASE5_SCOPE.md) | Scoping the real 68040 (MMU/FPU/cache): gap, milestones, risks |
 
 > Naming note: the 900/950 use the **MCU / JDB+Relayer / YANCC / DAFB / IOP /
 > Caboose** chips — **not** the djMEMC/IOSB parts often cited online (those are
