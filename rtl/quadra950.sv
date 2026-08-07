@@ -151,7 +151,13 @@ module quadra950
 	// $6000_0000 - NuBus standard slot space
 	wire sel_ram   = (cpu_addr[31:28] == 4'h0);
 	wire sel_rom   = (cpu_addr[31:24] == 8'h40) || (rom_overlay && sel_ram);
-	wire sel_io    = (cpu_addr[31:24] == 8'h50);
+	// I/O space is the full $5000_0000-$5FFF_FFFF (256 MB), not just the first
+	// 16 MB. Real Macs decode I/O incompletely, so devices alias widely across
+	// this range; the ROM's hardware-detection probes (docs/BOOT_ANALYSIS.md)
+	// deliberately read high aliases (e.g. VIA1 IER at $50F0_1C00 is probed with
+	// an alias check at +$100000 = $5100_1C00), so the whole $5x range must
+	// decode as I/O rather than bus-erroring above $50FF_FFFF.
+	wire sel_io    = (cpu_addr[31:28] == 4'h5);
 	wire sel_dafb  = (cpu_addr[31:24] == 8'hF9);
 	wire sel_nubus = (cpu_addr[31:28] == 4'h6) || (cpu_addr[31:28] == 4'hF);
 

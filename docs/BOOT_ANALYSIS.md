@@ -98,14 +98,53 @@ fetches, same loop). Interpretation: neither all-0s nor all-1s matches the
 Quadra candidate's masked signature — convergence needs the *exact* per-candidate
 pin pattern, not merely non-zero pins.
 
+## Detection is a candidate-probe chain (deeper trace)
+
+The identity scan is not one test but a **chain of hardware-probe candidates**
+tried in order (self-relative list at `$31AC`: offsets `$460, $3B8, $124,
+$1C4, $264, $304, …`). Each candidate points at a `DecoderInfo` record and a
+probe routine; the first whose probe *succeeds* fixes the machine, then the
+box-ID tables above pick the exact model. Detection is therefore two-level:
+a probe identifies the **chip family**, then `$47AE` (VIA pins) selects the
+**model** within it.
+
+- **`$31AC` candidate #1** → `DecoderInfo @ $360C` → probe `$3162`. The
+  DecoderInfo is a device-base map: `+$08 = $50F0_0000` (VIA1),
+  `+$0C = $50F0_4000` (SCC), `+$20 = $50F1_0000` (SCSI), `+$2C = $50F0_2000`
+  (VIA2), `+$30 = $50F1_4000` (ASC), `+$58 = $50F8_0000`.
+- **Probe `$3162`** read/write-tests `[$08(a0)]+$1C00 = $50F0_1C00`, which is
+  **VIA1 register 14 = IER**, via helper `$46AA`.
+- **Helper `$46AA`** is a register-behaviour + **address-aliasing** test: it
+  writes walking patterns to `(a2)` and reads them back, and it does
+  `tst.b/cmp.b (a2, d2.l)` with `d2 = $100000 / $80000 / $40000` — comparing the
+  register against its images at `+$100000` etc. This is what generated the
+  `$5100_1C00` access seen at runtime (`$50F0_1C00 + $100000`). The result
+  (aliased vs not, and how many bits behave) distinguishes machines.
+
+So convergence needs the probed registers to reproduce the **real Quadra 950
+decode/aliasing behaviour**, not just hold a value.
+
+## Fix applied: full I/O-space decode ($5x), bus errors eliminated
+
+`quadra950.sv` decoded I/O as only `$50xx_xxxx` (the first 16 MB), so every
+high alias the probe reads (`$5100_1C00`, …) bus-errored. But the I/O space is
+the whole `$5000_0000–$5FFF_FFFF`, and real Macs decode it incompletely (wide
+aliasing). `sel_io` was widened to `cpu_addr[31:28]==4'h5`. Effect in the
+full-system harness: **bus errors during detection went 10 → 0**, `$5100_1C00`
+now acks, and fetches advanced (258,850 → 276,821). The probe no longer faults;
+it still loops because the *aliasing pattern* our decode presents does not yet
+match what the Quadra 950 candidate expects (VIA images at `$50F0_1C00` vs
+`$5100_1C00` differ, since `+$100000` lands at `addr[23:16]=$00`, outside the
+VIA's `$F0` decode).
+
 ## What full ROM-boot convergence requires (open work)
 
-1. Identify which candidate DecoderInfo the ROM walks for our config and read
-   its DDR masks (`-0xC(a0)`, `-0xB(a0)`) and expected value/mask
-   (`[+0x18]`/`[+0x20]`) — i.e. finish tracing the `$31AC` dispatch to the
-   Quadra 950 entry.
-2. Drive VIA1/VIA2 port-A/B input pins (`iobus.sv`) to that signature so
-   `d1 & mask` matches `$1408`/`$0E08`.
+1. Trace each `$31AC` candidate to find which one is the Quadra 950 and what
+   its `$46AA` probe expects (register bit-behaviour + which `+$N` aliases must
+   match). Then make that DecoderInfo's probed register decode/alias
+   accordingly in `iobus.sv`.
+2. For the model select, drive VIA1/VIA2 port-A/B input pins to the signature so
+   `$47AE`'s `d1 & mask` matches `$1408`/`$0E08` (Quadra 900/950).
 3. Expect **further** gates after identity: RAM sizing (MCU bank probing),
    VIA/RTC time, ADB, then SCSI so a System file can be read. Each is its own
    probe-fidelity step, debuggable in this same harness (CPU PC + I/O trace).
