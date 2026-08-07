@@ -11,12 +11,17 @@ A work-in-progress **Apple Macintosh Quadra 950** (Motorola 68040) core for the
 >   executes; GHDL).
 > - **Memory** — a real MCU↔DDR3 controller with ROM loading (Icarus).
 > - **Video** — a DAFB framebuffer: VRAM + 256-colour CLUT + 8bpp scanout (Icarus).
-> - **I/O** — a 6522 VIA (timers + interrupts) wired through `iobus`, with the
->   reset ROM overlay clearing on first `$40000000` access (Icarus).
+> - **I/O** — a 6522 VIA (timers + interrupts) through `iobus`; the reset ROM
+>   overlay clears on first `$40000000` access (Icarus).
+> - **RTC** — the Caboose RTC/PRAM over the Apple serial protocol on VIA1 (Icarus).
+> - **Storage** — dual NCR 53C96 SCSI with READ(6)/WRITE(6) to the disk-image
+>   block interface (Icarus).
+> - **Input** — ADB keyboard/mouse translated from PS/2 (Icarus).
 >
-> It is not yet a full bootable system — the RTC (Caboose), SCSI, ADB, floppy
-> and sound are still stubs, and it targets a 68020-class CPU, not a true 040
-> (see [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md)).
+> It is not yet a full bootable system — the IOP host side (for ADB/floppy),
+> floppy and sound are still stubs, the SCSI/VIA still need validation against a
+> real ROM, and it targets a 68020-class CPU, not a true 040 (see
+> [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md)).
 
 ## Why this is hard (read this first)
 

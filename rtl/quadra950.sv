@@ -132,6 +132,11 @@ module quadra950
 	wire to_ram = sel_ram & ~rom_overlay;        // normal RAM (overlay cleared)
 	wire sel_mem = to_rom | to_ram;
 
+	// SCSI: two 53C96 channels in I/O space ($50F1_xxxx internal, $50F2_xxxx ext)
+	wire sel_scsi0 = sel_io & (cpu_addr[23:16] == 8'hF1);
+	wire sel_scsi1 = sel_io & (cpu_addr[23:16] == 8'hF2);
+	wire [3:0] scsi_reg = cpu_addr[7:4];         // 16-byte register spacing
+
 	// ROM overlay: at reset the MCU maps ROM over low memory ($0). Per Apple's
 	// developer note, the overlay is cleared on the first access to ROM's real
 	// location ($40000000), after which RAM appears at $0.
@@ -194,13 +199,16 @@ module quadra950
 	(
 		.clk      (clk_sys),
 		.reset    (reset),
-		.sel      (sel_io & cpu_ts),
+		.sel      (sel_io & cpu_ts & ~sel_scsi0 & ~sel_scsi1),
 		.addr     (cpu_addr[23:0]),
 		.din      (cpu_dout),
 		.dout     (io_dout),
 		.rw       (cpu_rw),
 		.ack      (io_ack),
 		.vbl      (VBlank),        // DAFB vertical blank -> VIA1 CA1
+		.ps2_key  (ps2_key),
+		.ps2_mouse(ps2_mouse),
+		.ext_irq2 (scsi0_irq | scsi1_irq),
 		.ipl      (ipl)
 	);
 
@@ -238,11 +246,13 @@ module quadra950
 	//========================================================================
 	//  Read data mux + transfer acknowledge back to the CPU
 	//========================================================================
-	assign cpu_din = sel_io   ? io_dout   :
-	                 sel_dafb ? dafb_dout :
-	                            ram_dout;
+	assign cpu_din = sel_scsi0 ? {24'd0, scsi0_dout} :
+	                 sel_scsi1 ? {24'd0, scsi1_dout} :
+	                 sel_io    ? io_dout   :
+	                 sel_dafb  ? dafb_dout :
+	                             ram_dout;
 
-	assign cpu_ta  = ram_ack | io_ack | dafb_ack;
+	assign cpu_ta  = ram_ack | io_ack | dafb_ack | scsi0_ack | scsi1_ack;
 
 	//========================================================================
 	//  Audio (Apple Sound Chip)
@@ -263,17 +273,34 @@ module quadra950
 	);
 
 	//========================================================================
-	//  SCSI (dual NCR 53C96) - not yet instantiated; tie off storage outputs.
-	//  When integrating, instantiate scsi_ncr53c96 twice (internal/external)
-	//  and connect each to one hps_io block channel (index 0/1).
+	//  SCSI (dual NCR 53C96): channel 0 = internal, channel 1 = external.
+	//  Each drives one hps_io block channel (disk image index 0/1).
 	//========================================================================
-	assign sd_lba[0]      = 32'd0;
-	assign sd_lba[1]      = 32'd0;
-	assign sd_rd          = 2'b00;
-	assign sd_wr          = 2'b00;
-	assign sd_buff_din[0] = 16'd0;
-	assign sd_buff_din[1] = 16'd0;
+	wire [7:0] scsi0_dout, scsi1_dout;
+	wire       scsi0_ack,  scsi1_ack;
+	wire       scsi0_irq,  scsi1_irq;
+	wire       scsi0_act,  scsi1_act;
 
-	assign disk_led = 1'b0;
+	scsi_ncr53c96 scsi0 (
+		.clk(clk_sys), .reset(reset),
+		.sel(sel_scsi0 & cpu_ts), .addr(scsi_reg), .din(cpu_dout[7:0]),
+		.dout(scsi0_dout), .rw(cpu_rw), .ack(scsi0_ack), .irq(scsi0_irq),
+		.img_mounted(img_mounted[0]), .img_readonly(img_readonly), .img_size(img_size),
+		.sd_lba(sd_lba[0]), .sd_rd(sd_rd[0]), .sd_wr(sd_wr[0]), .sd_ack(sd_ack[0]),
+		.sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout),
+		.sd_buff_din(sd_buff_din[0]), .sd_buff_wr(sd_buff_wr), .active(scsi0_act)
+	);
+
+	scsi_ncr53c96 scsi1 (
+		.clk(clk_sys), .reset(reset),
+		.sel(sel_scsi1 & cpu_ts), .addr(scsi_reg), .din(cpu_dout[7:0]),
+		.dout(scsi1_dout), .rw(cpu_rw), .ack(scsi1_ack), .irq(scsi1_irq),
+		.img_mounted(img_mounted[1]), .img_readonly(img_readonly), .img_size(img_size),
+		.sd_lba(sd_lba[1]), .sd_rd(sd_rd[1]), .sd_wr(sd_wr[1]), .sd_ack(sd_ack[1]),
+		.sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout),
+		.sd_buff_din(sd_buff_din[1]), .sd_buff_wr(sd_buff_wr), .active(scsi1_act)
+	);
+
+	assign disk_led = scsi0_act | scsi1_act;
 
 endmodule

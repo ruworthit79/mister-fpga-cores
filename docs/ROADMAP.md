@@ -44,11 +44,20 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 - 🚧 **Milestone (ROM draws "Welcome to Macintosh"):** needs `caboose` + the
   remaining I/O and a full mixed-language system sim / hardware build.
 
-## Phase 3 — Storage + input (bootable) ⬜
-- ⬜ `scsi_ncr53c96` ×2: register set, phases, DMA to the block interface
-- ⬜ `iop` mailbox + `adb`: PS/2 → ADB keyboard/mouse
+## Phase 3 — Storage + input 🚧 (datapaths done, sim-verified)
+- ✅ `caboose`: RTC 32-bit seconds counter + 256-byte PRAM over the Apple serial
+  protocol, wired to VIA1 port B. **Icarus-verified** (seconds + PRAM R/W).
+- ✅ `scsi_ncr53c96` ×2: 53C96 register model + READ(6)/WRITE(6) CDB parse +
+  DMA to the hps_io block interface. **Icarus-verified** (sector read + write
+  against a disk model). Wired to the top-level `sd_*` block channels 0/1.
+- ✅ `adb`: PS/2 → ADB keyboard/mouse translation + Talk R0 register model.
+  **Icarus-verified**. Wired into `iobus` (host command side awaits the IOP).
+- ⬜ `iop` mailbox: 6502-based I/O processor to drive ADB/SWIM host side
 - ⬜ `swim`: floppy (lower priority than SCSI)
-- ⬜ **Milestone:** boots a System 7 install from a SCSI disk image; usable
+- ⬜ SCSI CD-ROM target (for the Superstation One dock's optical drive)
+- 🚧 **Milestone (boots System 7 from a SCSI image):** each datapath is proven
+  in isolation; end-to-end boot needs the IOP host side, a real ROM, and a full
+  mixed-language system sim / hardware build.
 
 ## Phase 4 — Sound + polish ⬜
 - ⬜ `asc`/DFAC: FIFO + 4-voice playback, 22.257 kHz → 16-bit resample

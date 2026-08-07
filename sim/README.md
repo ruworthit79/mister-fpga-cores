@@ -31,12 +31,21 @@ What it proves: reset-vector fetch (SSP/PC), instruction fetch/execute, the
 - **`tb_dafb`** — DAFB framebuffer (`rtl/video/dafb.sv`): CPU VRAM + CLUT
   access, and 8bpp scanout indexed through the CLUT onto r/g/b (uses a tiny
   CRTC so a frame is short).
+- **`tb_caboose`** — RTC/PRAM (`rtl/chipset/caboose.sv`): the Apple serial
+  protocol — a seconds byte and an extended-PRAM byte written then read back.
+- **`tb_adb`** — ADB (`rtl/io/adb.sv`): a PS/2 key and mouse move translated to
+  ADB register-0 responses on Talk R0, and SRQ.
+- **`tb_scsi`** — NCR 53C96 (`rtl/io/scsi_ncr53c96.sv`): a READ(6) and WRITE(6)
+  against a behavioral disk model through the hps_io block interface.
 
 ```sh
 cd sim/iverilog && ./run.sh
 # -> PASS: MCU/DDR3 all checks passed
 # -> PASS: VIA all checks passed
 # -> PASS: DAFB all checks passed
+# -> PASS: Caboose all checks passed
+# -> PASS: ADB all checks passed
+# -> PASS: SCSI all checks passed
 ```
 
 ## Not covered here

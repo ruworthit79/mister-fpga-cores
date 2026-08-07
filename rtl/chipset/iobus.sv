@@ -18,7 +18,8 @@
 
 module iobus
 #(
-	parameter CE_DIV = 32          // system-clock / CE_DIV ~= VIA phase-2 rate
+	parameter CE_DIV   = 32,       // system-clock / CE_DIV ~= VIA phase-2 rate
+	parameter TICK_DIV = 50000000  // system-clock / TICK_DIV ~= 1 Hz RTC tick
 )
 (
 	input             clk,
@@ -31,6 +32,13 @@ module iobus
 	output reg        ack,
 
 	input             vbl,         // DAFB vertical blank (to VIA1 CA1)
+
+	// input devices
+	input      [10:0] ps2_key,
+	input      [24:0] ps2_mouse,
+
+	// external interrupt sources (e.g. SCSI) folded into level 2
+	input             ext_irq2,
 
 	output     [2:0]  ipl          // 68k interrupt level, active low
 );
@@ -56,12 +64,38 @@ module iobus
 	wire [7:0] via1_pa, via1_pb, via1_pa_dir, via1_pb_dir;
 	wire [7:0] via2_pa, via2_pb, via2_pa_dir, via2_pb_dir;
 
+	// ---- Caboose RTC/PRAM on VIA1 port B (bit0 data, bit1 clk, bit2 enb) ----
+	wire rtc_dout, rtc_oe;
+	wire [7:0] via1_pb_in = {7'b0, rtc_oe ? rtc_dout : 1'b0};
+
+	// 1 Hz tick for the RTC seconds counter
+	reg [31:0] tick_cnt; reg tick_1hz;
+	always @(posedge clk) begin
+		if (reset) begin tick_cnt <= 0; tick_1hz <= 0; end
+		else if (tick_cnt == TICK_DIV-1) begin tick_cnt <= 0; tick_1hz <= 1'b1; end
+		else begin tick_cnt <= tick_cnt + 1'b1; tick_1hz <= 1'b0; end
+	end
+
+	caboose caboose (
+		.clk(clk), .reset(reset), .tick_1hz(tick_1hz),
+		.rtc_enb(via1_pb[2]), .rtc_clk(via1_pb[1]), .rtc_data_in(via1_pb[0]),
+		.rtc_data_out(rtc_dout), .rtc_data_oe(rtc_oe)
+	);
+
+	// ---- ADB: PS/2 keyboard/mouse translation (host command side awaits the
+	//      SWIM IOP mailbox; verified standalone, cmd interface stubbed here) ----
+	wire [15:0] adb_data; wire adb_valid, adb_srq;
+	adb adb (
+		.clk(clk), .reset(reset), .ps2_key(ps2_key), .ps2_mouse(ps2_mouse),
+		.cmd_stb(1'b0), .cmd(8'h00), .data(adb_data), .valid(adb_valid), .srq(adb_srq)
+	);
+
 	via via1 (
 		.clk(clk), .reset(reset), .ce(via_ce),
 		.sel(via1_sel), .addr(via_reg), .din(din[7:0]), .dout(via1_dout), .rw(rw),
 		.irq(via1_irq),
 		.pa_in(8'h00), .pa_out(via1_pa), .pa_dir(via1_pa_dir),
-		.pb_in(8'h00), .pb_out(via1_pb), .pb_dir(via1_pb_dir),
+		.pb_in(via1_pb_in), .pb_out(via1_pb), .pb_dir(via1_pb_dir),
 		.ca1(vbl), .cb1(1'b0)
 	);
 
@@ -74,8 +108,8 @@ module iobus
 		.ca1(1'b0), .cb1(1'b0)
 	);
 
-	// ---- interrupt priority (VIA2 = level 2, VIA1 = level 1), active low ----
-	wire [2:0] level = via2_irq ? 3'd2 : via1_irq ? 3'd1 : 3'd0;
+	// ---- interrupt priority (level 2 = VIA2/SCSI, level 1 = VIA1), active low --
+	wire [2:0] level = (via2_irq | ext_irq2) ? 3'd2 : via1_irq ? 3'd1 : 3'd0;
 	assign ipl = ~level;
 
 	// ---- read mux + acknowledge ----
