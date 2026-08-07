@@ -1,0 +1,37 @@
+# --------------------------------------------------------------------------
+#  Quadra950_MiSTer - core source manifest
+#
+#  Add new RTL files here (NOT via the Quartus IDE, which rewrites the .qsf).
+#  Chip names follow the real Quadra 900/950 silicon (Apple Developer Note),
+#  NOT the later Centris/Quadra 610/650/800 "Wombat" parts (djMEMC/IOSB).
+# --------------------------------------------------------------------------
+
+# Top level (emu module wrapper)
+set_global_assignment -name SYSTEMVERILOG_FILE Quadra950.sv
+set_global_assignment -name SDC_FILE Quadra950.sdc
+
+# System integration
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/quadra950.sv
+
+# CPU (integration wrapper; drop the chosen 68k core sources in rtl/cpu/)
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/cpu_wrapper.sv
+
+# Chipset - real Quadra 900/950 custom ICs
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/chipset/mcu.sv      ;# Memory Control Unit
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/chipset/iobus.sv    ;# JDB + Relayer I/O bus adapter
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/chipset/via.sv      ;# VIA1 / VIA2
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/chipset/caboose.sv  ;# RTC / PRAM / power (68HC05)
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/chipset/yancc.sv    ;# NuBus controller
+
+# Video
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/video/dafb.sv       ;# Direct Access Frame Buffer
+
+# Audio
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/audio/asc.sv        ;# Enhanced Apple Sound Chip (+DFAC)
+
+# I/O peripherals
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/io/iop.sv           ;# 6502-based I/O processor
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/io/scsi_ncr53c96.sv ;# dual NCR 53C96 SCSI
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/io/swim.sv          ;# SWIM floppy controller
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/io/adb.sv           ;# Apple Desktop Bus (via IOP)
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/io/sonic.sv         ;# SONIC DP83932 Ethernet
