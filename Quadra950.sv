@@ -56,7 +56,7 @@ localparam CONF_STR = {
 	"S1,IMGHDVDSK,Mount SCSI1;",
 	"-;",
 	"O[9:8],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
-	"O[12:10],Screen size,1152x870,1024x768,832x624,640x480;",
+	"O[11:10],Screen size,640x480,832x624,1024x768,1152x870;",
 	"-;",
 	"O[13],RAM,64MB,128MB;",
 	"-;",
@@ -166,6 +166,7 @@ quadra950 quadra950
 	.reset        (reset),
 
 	.ram_128mb    (status[13]),
+	.vmode        (status[11:10]),
 
 	// ROM / file download
 	.ioctl_download(ioctl_download),

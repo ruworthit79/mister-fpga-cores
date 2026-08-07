@@ -90,9 +90,12 @@ module iobus
 		.cmd_stb(1'b0), .cmd(8'h00), .data(adb_data), .valid(adb_valid), .srq(adb_srq)
 	);
 
+	// Byte lane: the 68040 places a byte access to a 4-aligned register address
+	// on D31-D24 (big-endian). VIA registers are at $50F0_0000 + reg*0x200, all
+	// 4-aligned, so the CPU byte is din[31:24] (ROM-validated address map).
 	via via1 (
 		.clk(clk), .reset(reset), .ce(via_ce),
-		.sel(via1_sel), .addr(via_reg), .din(din[7:0]), .dout(via1_dout), .rw(rw),
+		.sel(via1_sel), .addr(via_reg), .din(din[31:24]), .dout(via1_dout), .rw(rw),
 		.irq(via1_irq),
 		.pa_in(8'h00), .pa_out(via1_pa), .pa_dir(via1_pa_dir),
 		.pb_in(via1_pb_in), .pb_out(via1_pb), .pb_dir(via1_pb_dir),
@@ -101,7 +104,7 @@ module iobus
 
 	via via2 (
 		.clk(clk), .reset(reset), .ce(via_ce),
-		.sel(via2_sel), .addr(via_reg), .din(din[7:0]), .dout(via2_dout), .rw(rw),
+		.sel(via2_sel), .addr(via_reg), .din(din[31:24]), .dout(via2_dout), .rw(rw),
 		.irq(via2_irq),
 		.pa_in(8'h00), .pa_out(via2_pa), .pa_dir(via2_pa_dir),
 		.pb_in(8'h00), .pb_out(via2_pb), .pb_dir(via2_pb_dir),
@@ -113,10 +116,11 @@ module iobus
 	assign ipl = ~level;
 
 	// ---- read mux + acknowledge ----
+	// Read data returns on the high byte to match the CPU's byte-access lane.
 	always @(posedge clk) begin
 		ack <= 1'b0;
-		if (via1_sel)      dout <= {24'd0, via1_dout};
-		else if (via2_sel) dout <= {24'd0, via2_dout};
+		if (via1_sel)      dout <= {via1_dout, 24'd0};
+		else if (via2_sel) dout <= {via2_dout, 24'd0};
 		else               dout <= 32'd0;          // unmapped I/O reads as 0
 		if (sel && !ack) ack <= 1'b1;
 	end

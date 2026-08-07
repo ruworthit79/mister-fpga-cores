@@ -63,10 +63,15 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 - ✅ `asc`: Apple Sound Chip FIFO playback — stereo 8-bit FIFOs, offset-binary
   → signed-16 conversion, sample-rate playout, half-empty IRQ. **Icarus-
   verified**; wired into I/O space ($50F3) and the audio output.
+- ✅ Programmable DAFB CRTC: 4 selectable Apple timings (640×480, 832×624,
+  1024×768, 1152×870) wired to the OSD "Screen size" option. **Icarus-verified**
+  (`tb_dafb_modes`).
+- ✅ I/O map + byte lane validated against a real Quadra 950 ROM; addresses
+  corrected (ASC $50F14000, SCSI $50F10000, VIA confirmed). See
+  [ROM_VALIDATION.md](ROM_VALIDATION.md).
 - ⬜ `asc`: 4-voice wavetable mode + DFAC record path
 - ⬜ Save/load PRAM to MiSTer persistent storage (expose Caboose PRAM to hps_io)
-- ⬜ Wire the OSD "Screen size" option to a programmable DAFB CRTC (multiple
-  Apple timings); today DAFB timing is fixed 640×480
+- ⬜ Confirm the 2nd SCSI channel address + VIA function mapping vs the ROM
 - ⬜ Cycle/timing tuning; regenerate the PLL; 33 MHz `ce` divider
 
 ## Phase 5 — Toward real 68040 fidelity ⬜

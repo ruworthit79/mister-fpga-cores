@@ -17,6 +17,7 @@ module quadra950
 	input             reset,
 
 	input             ram_128mb,     // 0 = 64MB, 1 = 128MB of emulated RAM
+	input      [1:0]  vmode,         // video mode (OSD "Screen size")
 
 	// ROM / file download (index 0 = Quadra ROM, 1 MB)
 	input             ioctl_download,
@@ -132,13 +133,16 @@ module quadra950
 	wire to_ram = sel_ram & ~rom_overlay;        // normal RAM (overlay cleared)
 	wire sel_mem = to_rom | to_ram;
 
-	// SCSI: two 53C96 channels in I/O space ($50F1_xxxx internal, $50F2_xxxx ext)
-	wire sel_scsi0 = sel_io & (cpu_addr[23:16] == 8'hF1);
-	wire sel_scsi1 = sel_io & (cpu_addr[23:16] == 8'hF2);
+	// ROM-validated I/O map (device bases confirmed by disassembly of the real
+	// Quadra 950 ROM): VIA1 $50F00000, VIA2 $50F02000, SCC $50F04000,
+	// SONIC $50F0A000, SCSI $50F10000, ASC $50F14000. Devices occupy 0x2000
+	// blocks. See docs/ROM_VALIDATION.md.
+	wire sel_scsi0 = sel_io & (cpu_addr[23:12] == 12'hF10);   // internal SCSI
+	wire sel_scsi1 = sel_io & (cpu_addr[23:12] == 12'hF12);   // external (tentative)
 	wire [3:0] scsi_reg = cpu_addr[7:4];         // 16-byte register spacing
 
-	// Apple Sound Chip in I/O space ($50F3_xxxx)
-	wire sel_asc = sel_io & (cpu_addr[23:16] == 8'hF3);
+	// Apple Sound Chip at $50F14000 (ROM-validated)
+	wire sel_asc = sel_io & (cpu_addr[23:12] == 12'hF14);
 	wire [7:0] asc_dout;
 	wire       asc_ack, asc_irq;
 
@@ -227,6 +231,7 @@ module quadra950
 	(
 		.clk      (clk_sys),
 		.reset    (reset),
+		.vmode    (vmode),
 
 		// CPU register/VRAM access
 		.sel      (sel_dafb & cpu_ts),
@@ -251,9 +256,11 @@ module quadra950
 	//========================================================================
 	//  Read data mux + transfer acknowledge back to the CPU
 	//========================================================================
-	assign cpu_din = sel_scsi0 ? {24'd0, scsi0_dout} :
-	                 sel_scsi1 ? {24'd0, scsi1_dout} :
-	                 sel_asc   ? {24'd0, asc_dout}   :
+	// Byte devices return data on D31-D24 (the CPU's byte-access lane for a
+	// 4-aligned address). io_dout (VIA) is already placed on the high byte.
+	assign cpu_din = sel_scsi0 ? {scsi0_dout, 24'd0} :
+	                 sel_scsi1 ? {scsi1_dout, 24'd0} :
+	                 sel_asc   ? {asc_dout, 24'd0}   :
 	                 sel_io    ? io_dout   :
 	                 sel_dafb  ? dafb_dout :
 	                             ram_dout;
@@ -280,7 +287,7 @@ module quadra950
 		.snd_ce   (snd_ce),
 		.sel      (sel_asc & cpu_ts),
 		.addr     (cpu_addr[11:0]),
-		.din      (cpu_dout[7:0]),
+		.din      (cpu_dout[31:24]),
 		.dout     (asc_dout),
 		.rw       (cpu_rw),
 		.ack      (asc_ack),
@@ -300,7 +307,7 @@ module quadra950
 
 	scsi_ncr53c96 scsi0 (
 		.clk(clk_sys), .reset(reset),
-		.sel(sel_scsi0 & cpu_ts), .addr(scsi_reg), .din(cpu_dout[7:0]),
+		.sel(sel_scsi0 & cpu_ts), .addr(scsi_reg), .din(cpu_dout[31:24]),
 		.dout(scsi0_dout), .rw(cpu_rw), .ack(scsi0_ack), .irq(scsi0_irq),
 		.img_mounted(img_mounted[0]), .img_readonly(img_readonly), .img_size(img_size),
 		.sd_lba(sd_lba[0]), .sd_rd(sd_rd[0]), .sd_wr(sd_wr[0]), .sd_ack(sd_ack[0]),
@@ -310,7 +317,7 @@ module quadra950
 
 	scsi_ncr53c96 scsi1 (
 		.clk(clk_sys), .reset(reset),
-		.sel(sel_scsi1 & cpu_ts), .addr(scsi_reg), .din(cpu_dout[7:0]),
+		.sel(sel_scsi1 & cpu_ts), .addr(scsi_reg), .din(cpu_dout[31:24]),
 		.dout(scsi1_dout), .rw(cpu_rw), .ack(scsi1_ack), .irq(scsi1_irq),
 		.img_mounted(img_mounted[1]), .img_readonly(img_readonly), .img_size(img_size),
 		.sd_lba(sd_lba[1]), .sd_rd(sd_rd[1]), .sd_wr(sd_wr[1]), .sd_ack(sd_ack[1]),

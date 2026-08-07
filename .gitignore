@@ -35,3 +35,8 @@ sim/iverilog/tb_mcu
 
 # GHDL work library anywhere
 work-obj*.cf
+
+# Never commit ROM dumps (copyrighted firmware)
+*.rom
+*.ROM
+*.bin

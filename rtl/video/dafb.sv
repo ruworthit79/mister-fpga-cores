@@ -22,13 +22,17 @@
 
 module dafb #(
 	parameter VRAM_WORDS = 4096,          // 32-bit words (test size)
-	// CRTC timing (defaults = 640x480@~60; override for fast simulation)
+	// When TESTTIMING=1 the parameter timing below is used (fast sim frame);
+	// otherwise the CRTC timing comes from `vmode` (real Apple resolutions).
+	parameter TESTTIMING = 0,
 	parameter H_ACT = 640, H_FP = 16, H_SY = 96, H_BP = 48,
 	parameter V_ACT = 480, V_FP = 10, V_SY = 2,  V_BP = 33
 )
 (
 	input             clk,
 	input             reset,
+
+	input      [1:0]  vmode,        // 0=640x480 1=832x624 2=1024x768 3=1152x870
 
 	// CPU access
 	input             sel,
@@ -127,26 +131,53 @@ module dafb #(
 	end
 
 	// ================= CRTC =================
-	localparam H_TOT = H_ACT + H_FP + H_SY + H_BP;
-	localparam V_TOT = V_ACT + V_FP + V_SY + V_BP;
+	// Runtime timing (approximate standard Apple modes) selected by vmode, via
+	// continuous assigns (evaluate at t=0, unambiguous sensitivity). TESTTIMING
+	// pins the timing to the parameter values for a fast simulation frame.
+	wire [11:0] h_act_m = (vmode==2'd0)?12'd640 :(vmode==2'd1)?12'd832 :(vmode==2'd2)?12'd1024:12'd1152;
+	wire [11:0] h_fp_m  = (vmode==2'd0)?12'd16  :(vmode==2'd1)?12'd32  :(vmode==2'd2)?12'd24  :12'd32;
+	wire [11:0] h_sy_m  = (vmode==2'd0)?12'd96  :(vmode==2'd1)?12'd64  :(vmode==2'd2)?12'd136 :12'd128;
+	wire [11:0] h_bp_m  = (vmode==2'd0)?12'd48  :(vmode==2'd1)?12'd224 :(vmode==2'd2)?12'd160 :12'd144;
+	wire [11:0] v_act_m = (vmode==2'd0)?12'd480 :(vmode==2'd1)?12'd624 :(vmode==2'd2)?12'd768 :12'd870;
+	wire [11:0] v_fp_m  = (vmode==2'd0)?12'd10  :(vmode==2'd1)?12'd1   :(vmode==2'd2)?12'd3   :12'd3;
+	wire [11:0] v_sy_m  = (vmode==2'd0)?12'd2   :(vmode==2'd1)?12'd3   :(vmode==2'd2)?12'd6   :12'd3;
+	wire [11:0] v_bp_m  = (vmode==2'd0)?12'd33  :(vmode==2'd1)?12'd39  :(vmode==2'd2)?12'd29  :12'd39;
 
-	reg [9:0] hc, vc;
+	wire [11:0] h_act_v = TESTTIMING ? H_ACT[11:0] : h_act_m;
+	wire [11:0] h_fp_v  = TESTTIMING ? H_FP[11:0]  : h_fp_m;
+	wire [11:0] h_sy_v  = TESTTIMING ? H_SY[11:0]  : h_sy_m;
+	wire [11:0] h_bp_v  = TESTTIMING ? H_BP[11:0]  : h_bp_m;
+	wire [11:0] v_act_v = TESTTIMING ? V_ACT[11:0] : v_act_m;
+	wire [11:0] v_fp_v  = TESTTIMING ? V_FP[11:0]  : v_fp_m;
+	wire [11:0] v_sy_v  = TESTTIMING ? V_SY[11:0]  : v_sy_m;
+	wire [11:0] v_bp_v  = TESTTIMING ? V_BP[11:0]  : v_bp_m;
+
+	wire [11:0] H_ACTs = h_act_v;
+	wire [11:0] V_ACTs = v_act_v;
+	wire [11:0] H_TOT  = h_act_v + h_fp_v + h_sy_v + h_bp_v;
+	wire [11:0] V_TOT  = v_act_v + v_fp_v + v_sy_v + v_bp_v;
+	wire [11:0] H_SE   = h_act_v + h_fp_v;              // hsync start
+	wire [11:0] H_SEND = h_act_v + h_fp_v + h_sy_v;     // hsync end
+	wire [11:0] V_SE   = v_act_v + v_fp_v;
+	wire [11:0] V_SEND = v_act_v + v_fp_v + v_sy_v;
+
+	reg [11:0] hc, vc;
 	always @(posedge clk) begin
 		if (reset) begin hc <= 0; vc <= 0; end
 		else if (ce_pix) begin
 			if (hc == H_TOT-1) begin
 				hc <= 0;
-				vc <= (vc == V_TOT-1) ? 10'd0 : vc + 1'd1;
+				vc <= (vc == V_TOT-1) ? 12'd0 : vc + 1'd1;
 			end else hc <= hc + 1'd1;
 		end
 	end
 
-	wire h_act = (hc < H_ACT);
-	wire v_act = (vc < V_ACT);
+	wire h_act = (hc < H_ACTs);
+	wire v_act = (vc < V_ACTs);
 	wire hbl   = ~h_act;
 	wire vbl   = ~v_act;
-	wire hsy   = (hc >= H_ACT+H_FP) && (hc < H_ACT+H_FP+H_SY);
-	wire vsy   = (vc >= V_ACT+V_FP) && (vc < V_ACT+V_FP+V_SY);
+	wire hsy   = (hc >= H_SE) && (hc < H_SEND);
+	wire vsy   = (vc >= V_SE) && (vc < V_SEND);
 
 	// Line base address accumulator (avoids a per-pixel multiply).
 	reg [23:0] line_base;
@@ -158,7 +189,7 @@ module dafb #(
 		end
 	end
 
-	wire [23:0] pix_byte = line_base + {14'd0, hc};   // 8 bpp: 1 byte/pixel
+	wire [23:0] pix_byte = line_base + {12'd0, hc};   // 8 bpp: 1 byte/pixel
 	wire [AW-1:0] pix_word = pix_byte[AW+1:2];
 	wire [1:0]    pix_lane = pix_byte[1:0];
 
@@ -166,7 +197,7 @@ module dafb #(
 	reg [7:0] s1_b0, s1_b1, s1_b2, s1_b3;
 	reg       s1_hbl, s1_vbl, s1_hsy, s1_vsy, s1_act;
 	reg [1:0] s1_lane;
-	reg [9:0] s1_x, s1_y, s2_x, s2_y;   // pixel coords pipelined with the data
+	reg [11:0] s1_x, s1_y, s2_x, s2_y;   // pixel coords pipelined with the data
 	always @(posedge clk) if (ce_pix) begin
 		s1_b0 <= vram0[pix_word]; s1_b1 <= vram1[pix_word];
 		s1_b2 <= vram2[pix_word]; s1_b3 <= vram3[pix_word];

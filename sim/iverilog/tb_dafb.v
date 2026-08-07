@@ -25,10 +25,12 @@ module tb_dafb;
 	localparam CLUT_BASE = 24'h10_0000;
 	localparam REG_BASE  = 24'h00_0000;
 
-	dafb #(.VRAM_WORDS(256),
+	reg [1:0] vmode = 0;
+
+	dafb #(.VRAM_WORDS(256), .TESTTIMING(1),
 	       .H_ACT(8), .H_FP(1), .H_SY(1), .H_BP(1),
 	       .V_ACT(4), .V_FP(1), .V_SY(1), .V_BP(1)) dut (
-		.clk(clk), .reset(reset),
+		.clk(clk), .reset(reset), .vmode(vmode),
 		.sel(sel), .addr(addr), .din(din), .dout(dout), .be(be), .rw(rw), .ack(ack),
 		.ce_pix(ce_pix), .HBlank(HBlank), .HSync(HSync), .VBlank(VBlank), .VSync(VSync),
 		.r(r), .g(g), .b(b), .vbl_irq(vbl_irq)

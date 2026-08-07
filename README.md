@@ -18,6 +18,11 @@ A work-in-progress **Apple Macintosh Quadra 950** (Motorola 68040) core for the
 >   block interface (Icarus).
 > - **Input** — ADB keyboard/mouse translated from PS/2 (Icarus).
 > - **Sound** — Apple Sound Chip FIFO playback, 8-bit → signed-16 stereo (Icarus).
+> - **Video modes** — programmable DAFB CRTC, 4 Apple resolutions from the OSD (Icarus).
+>
+> The I/O map, byte lane and reset were **validated against a real Quadra 950
+> ROM** (see [`docs/ROM_VALIDATION.md`](docs/ROM_VALIDATION.md)); device
+> addresses were corrected to match.
 >
 > It is not yet a full bootable system. Remaining before a boot is realistic:
 > the **IOP host side** (to actually drive ADB/floppy), **floppy (SWIM)**,
@@ -51,7 +56,8 @@ rather than pretending to be a finished core.
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Full, cited hardware spec (CPU, chips, video, sound, I/O) |
 | [`docs/MEMORY_MAP.md`](docs/MEMORY_MAP.md) | Address map the decoder implements |
 | [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md) | The 68040 problem and how we approach it |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phased build plan (you are at Phase 0) |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phased build plan |
+| [`docs/ROM_VALIDATION.md`](docs/ROM_VALIDATION.md) | I/O map + reset verified against a real Quadra 950 ROM |
 
 > Naming note: the 900/950 use the **MCU / JDB+Relayer / YANCC / DAFB / IOP /
 > Caboose** chips — **not** the djMEMC/IOSB parts often cited online (those are
