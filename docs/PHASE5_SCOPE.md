@@ -116,11 +116,18 @@ all verified peripherals) with a DDR3 model preloaded with the ROM. Findings:
    quadra950 watchdog). After it, the CPU no longer hangs: **~2.59M fetches**
    with no stall, cycling through the probe routines (`$2F7C/$3162/$46ac/
    $47xx/$4814`). Video generates frames throughout.
-3. **Still iterating the probe.** It hasn't reached machine init (`drew=0`):
-   converging past the probe needs the probed peripherals to return the exact
-   IDs/status bits the ROM checks. That — peripheral-response fidelity to the
-   ROM's probe — is the next full-system step, and is now directly debuggable
-   in this harness (trace CPU PC + the probed I/O addresses).
+3. **Root-caused the probe loop (see `docs/BOOT_ANALYSIS.md`).** The core is
+   healthy — reset, overlay clear, VIA bring-up, zero exceptions — and the
+   stall is the ROM's **universal machine-identification scan**, not a CPU or
+   bus bug. The scan assembles a machine signature from VIA1/VIA2 port-A/B
+   **input pins** (`$47AE` DDR-manipulation read) and compares it against
+   box-ID tables at `$31C4`/`$31C8`. Those pins are tied to 0 here, so the
+   signature is 0 and matches no Quadra candidate; the scan retries forever.
+   The Quadra 900/950 identity is the class-08 code `$1408`/`$0E08`
+   (shared HW-config `07A31807`). Driving the pins to `0xFF` gave a
+   byte-identical loop — convergence needs the *exact* per-candidate pin
+   pattern. This is a long ROM-fidelity RE tail (identity → RAM sizing → RTC →
+   ADB → SCSI), independent of the Level-A/B/C CPU work.
 ```
 
 5.1  040 personality & instruction gaps .............. S–M   [Level A]

@@ -89,10 +89,13 @@ module boot_top;
 				if (nfetch % 200000 == 0)
 					$display("[%0t] fetch#%0d PC=%08x fc=%b", $time, nfetch, dut.cpu_addr, dut.cpu_fc);
 			end
+			// late capture window: dump the exact loop body (PC + all bus cycles)
+			if (nfetch >= 250000 && nfetch <= 250120)
+				$display("BUS %s addr=%08x fc=%b %s", dut.cpu_rw?"RD":"WR", dut.cpu_addr, dut.cpu_fc, dut.cpu_berr?"BERR":"");
 			last_pc <= dut.cpu_addr;
 		end
 		// log I/O accesses on completion (ta or bus error): what the probe reads
-		if (dut.cpu_ts && (dut.cpu_ta || dut.cpu_berr) && niolog < 500) begin
+		if (dut.cpu_ts && (dut.cpu_ta || dut.cpu_berr) && niolog < 100000) begin
 			if (dut.cpu_addr[31:24] >= 8'h50 && dut.cpu_addr[31:24] <= 8'h5F) begin
 				$display("IO %s addr=%08x %s data=%08x be=%b", dut.cpu_rw?"RD":"WR",
 					dut.cpu_addr, dut.cpu_berr?"BERR":"ack ",
