@@ -102,6 +102,7 @@ architecture rtl of cpu_wrapper is
 	signal s_state    : std_logic_vector(1 downto 0);
 	signal clkena_e   : std_logic;                  -- memory-completion pulse
 	signal r_data     : std_logic_vector(15 downto 0);
+	signal ta_lat     : std_logic;                  -- TA captured across ce gaps
 
 	signal mem_access : std_logic;
 	signal uds, lds   : std_logic;
@@ -169,17 +170,30 @@ begin
 					when "01" =>                    -- TS asserted
 						s_state <= "10";
 					when "10" =>                    -- sample TA, latch read data
-						if k_addr(1) = '0' then
-							r_data <= din(31 downto 16);
-						else
-							r_data <= din(15 downto 0);
-						end if;
-						if ta = '1' then
+						if ta = '1' or ta_lat = '1' then
+							if k_addr(1) = '0' then
+								r_data <= din(31 downto 16);
+							else
+								r_data <= din(15 downto 0);
+							end if;
 							s_state <= "11";        -- ready -> advance next
 						end if;
 					when others =>                  -- "11" advance the kernel
 						s_state <= "00";
 				end case;
+			end if;
+		end if;
+	end process;
+
+	-- Capture TA across ce gaps: devices may pulse TA for a single clock, which
+	-- could fall in a ce-disabled cycle. Latch it (ungated by ce) for the whole
+	-- bus cycle so the CPU still completes the transfer at the emulated rate.
+	process(clk)
+	begin
+		if rising_edge(clk) then
+			if reset = '1' then         ta_lat <= '0';
+			elsif s_state = "00" then   ta_lat <= '0';   -- idle: clear before a cycle
+			elsif ta = '1' then         ta_lat <= '1';   -- capture ack during 01/10
 			end if;
 		end if;
 	end process;

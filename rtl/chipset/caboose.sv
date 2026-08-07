@@ -34,11 +34,20 @@ module caboose
 	input             rtc_clk,      // serial clock
 	input             rtc_data_in,  // host -> RTC
 	output reg        rtc_data_out, // RTC -> host
-	output reg        rtc_data_oe   // 1 when RTC drives data_out (reads)
+	output reg        rtc_data_oe,  // 1 when RTC drives data_out (reads)
+
+	// PRAM backup port (for hps_io persistence): the ARM streams the 256 PRAM
+	// bytes in on restore (bk_wr) and reads them out for saving (bk_dout).
+	input      [7:0]  bk_addr,
+	input             bk_wr,
+	input      [7:0]  bk_din,
+	output     [7:0]  bk_dout
 );
 
 	reg [31:0] seconds;              // Mac epoch seconds
 	reg [7:0]  pram [0:255];
+
+	assign bk_dout = pram[bk_addr];  // backup read port
 
 	localparam P_CMD = 2'd0, P_ADDR = 2'd1, P_WDATA = 2'd2, P_RDATA = 2'd3;
 	reg [1:0] phase;
@@ -71,6 +80,9 @@ module caboose
 		end else begin
 			clk_d <= rtc_clk;
 			enb_d <= rtc_enb;
+
+			// PRAM backup restore (ARM -> PRAM)
+			if (bk_wr) pram[bk_addr] <= bk_din;
 
 			// real-time tick (a write below may override the same cycle)
 			if (tick_1hz) seconds <= seconds + 32'd1;

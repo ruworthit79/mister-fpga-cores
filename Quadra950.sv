@@ -77,12 +77,18 @@ wire        direct_video;
 wire  [10:0] ps2_key;
 wire  [24:0] ps2_mouse;
 
-// ROM / file download channel (Quadra ROM image, 1 MB)
+// ROM / file download channel (Quadra ROM image, 1 MB) + NVRAM save/restore
 wire        ioctl_download;
 wire  [7:0] ioctl_index;
 wire        ioctl_wr;
 wire [26:0] ioctl_addr;
 wire [15:0] ioctl_dout;
+wire        ioctl_upload;
+wire        ioctl_rd;
+wire [15:0] ioctl_din;
+wire  [7:0] ioctl_upload_index;
+
+localparam [7:0] NVRAM_INDEX = 8'd2;   // PRAM save file (ioctl index)
 
 // SCSI disk images (two targets)
 wire  [1:0] img_mounted;
@@ -119,6 +125,10 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
+	.ioctl_upload(ioctl_upload),
+	.ioctl_upload_index(ioctl_upload_index),
+	.ioctl_rd(ioctl_rd),
+	.ioctl_din(ioctl_din),
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
@@ -150,6 +160,18 @@ pll pll
 );
 
 wire reset = RESET | status[0] | buttons[1] | ~pll_locked;
+
+//////////////////////////////////////////////////////////////////
+//  PRAM NVRAM save / restore via the ioctl save file (NVRAM_INDEX).
+//  One PRAM byte per 16-bit ioctl word (low byte); ioctl_addr[8:1] -> 0..255.
+//////////////////////////////////////////////////////////////////
+wire [7:0] pram_bk_dout;
+wire       nv_dl = ioctl_download & (ioctl_index == NVRAM_INDEX);
+wire       nv_ul = ioctl_upload   & (ioctl_upload_index == NVRAM_INDEX);
+wire [7:0] pram_bk_addr = ioctl_addr[8:1];
+wire       pram_bk_wr   = nv_dl & ioctl_wr;
+wire [7:0] pram_bk_din  = ioctl_dout[7:0];
+assign ioctl_din = nv_ul ? {8'd0, pram_bk_dout} : 16'd0;
 
 //////////////////////////////////////////////////////////////////
 //  System
@@ -191,6 +213,12 @@ quadra950 quadra950
 	// Input (ADB via PS/2 translation)
 	.ps2_key      (ps2_key),
 	.ps2_mouse    (ps2_mouse),
+
+	// PRAM NVRAM backup
+	.pram_bk_addr (pram_bk_addr),
+	.pram_bk_wr   (pram_bk_wr),
+	.pram_bk_din  (pram_bk_din),
+	.pram_bk_dout (pram_bk_dout),
 
 	// DDR3 (main system RAM lives in DDR3 on the DE10-Nano)
 	.DDRAM_CLK    (DDRAM_CLK),

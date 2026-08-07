@@ -50,13 +50,20 @@ byte access to a 4-aligned address the 68040 drives/reads that byte on
 **D31–D24** (big-endian). The device connections were moved from `[7:0]` to
 `[31:24]` accordingly (`cpu_wrapper` already places byte write-data there).
 
+### VIA1 port B / RTC bits — CORROBORATED
+VIA1 `vBufB` (ORB, `$50F00000`) is heavily referenced (10×) and its direction
+register DDRB (`$50F00400`) is configured, and the boot code contains
+single-bit ops on bits 0/1/2 — consistent with the documented RTC serial lines
+carried on VIA1 port B: **bit0 = rtcData, bit1 = rtcClk, bit2 = rtcEnb**, which
+is exactly how `iobus` wires the Caboose. (The individual bit ops use
+address-register-relative operands, so this corroborates rather than proves the
+per-bit assignment; it matches the "Guide to the Macintosh Family Hardware.")
+
 ## Still open / uncertain
 - **Second SCSI channel** address: only `$50F10000` is confirmed; the external
   53C96 is placed tentatively at `$50F12000` and needs confirmation.
-- **VIA register-to-function mapping** (which port bit is overlay/sound/RTC
-  data-clock-enable) and the **RTC command encoding** were not exhaustively
-  traced; they follow the "Guide to the Macintosh Family Hardware" and remain
-  to be verified against boot behaviour.
+- **Exact RTC command encoding** and the sound-enable / other vBufB bits were
+  not exhaustively traced.
 - The **machine ID / Gestalt** check (Quadra 950 = 26) is expected in the boot
   path; satisfying it fully depends on the CPU/ROM interaction, which needs a
   full-system (mixed-language) simulation to observe.

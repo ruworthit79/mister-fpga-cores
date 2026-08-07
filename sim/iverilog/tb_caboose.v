@@ -10,13 +10,18 @@ module tb_caboose;
 	reg  rtc_enb = 1, rtc_clk = 0, rtc_data_in = 0;
 	wire rtc_data_out, rtc_data_oe;
 
+	reg  [7:0] bk_addr = 0, bk_din = 0;
+	reg        bk_wr = 0;
+	wire [7:0] bk_dout;
+
 	integer errors = 0;
 	reg [7:0] q;
 
 	caboose dut (
 		.clk(clk), .reset(reset), .tick_1hz(tick_1hz),
 		.rtc_enb(rtc_enb), .rtc_clk(rtc_clk), .rtc_data_in(rtc_data_in),
-		.rtc_data_out(rtc_data_out), .rtc_data_oe(rtc_data_oe)
+		.rtc_data_out(rtc_data_out), .rtc_data_oe(rtc_data_oe),
+		.bk_addr(bk_addr), .bk_wr(bk_wr), .bk_din(bk_din), .bk_dout(bk_dout)
 	);
 
 	always #10 clk = ~clk;
@@ -75,6 +80,16 @@ module tb_caboose;
 		start; send_byte(8'h38); send_byte(8'h20); send_byte(8'h3C); stop;
 		start; send_byte(8'hB8); send_byte(8'h20); recv_byte(q); stop;
 		chk("pram20", q, 8'h3C);
+
+		// 3. backup port shares the same PRAM array as the serial path:
+		//    (a) a byte written by serial is visible on the backup read port
+		bk_addr = 8'h10; @(posedge clk); #1;
+		chk("bk read of serial-written", bk_dout, 8'hA5);   // written via serial above
+		//    (b) a byte written via the backup port is read back by serial
+		@(posedge clk); #1 bk_addr = 8'h30; bk_din = 8'h7E; bk_wr = 1;
+		@(posedge clk); #1 bk_wr = 0;
+		start; send_byte(8'hB8); send_byte(8'h30); recv_byte(q); stop;
+		chk("serial read of bk-written", q, 8'h7E);
 
 		if (errors == 0) $display("PASS: Caboose all checks passed");
 		else             $display("FAILED: %0d error(s)", errors);

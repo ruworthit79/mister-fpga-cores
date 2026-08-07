@@ -25,7 +25,7 @@ architecture sim of tb_cpu is
 
 	signal clk   : std_logic := '0';
 	signal reset : std_logic := '1';
-	signal ce    : std_logic := '1';
+	signal ce    : std_logic := '0';
 
 	signal addr  : std_logic_vector(31 downto 0);
 	signal dout  : std_logic_vector(31 downto 0);
@@ -62,36 +62,55 @@ begin
 
 	clk <= not clk after 10 ns;            -- 50 MHz
 
+	-- ce: a divided clock enable (high 1 clk in 3), so the CPU advances at an
+	-- emulated slower rate. Validates that the bus adapter tolerates ce<1
+	-- (freezes cleanly and still completes transfers).
+	ce_gen : process(clk)
+		variable c : integer range 0 to 2 := 0;
+	begin
+		if rising_edge(clk) then
+			if c = 2 then c := 0; ce <= '1'; else c := c + 1; ce <= '0'; end if;
+		end if;
+	end process;
+
 	-- Combinational read data: big-endian 32-bit word at the latched (word-
 	-- aligned) address. a_lat is stored already aligned to 4.
 	din <= mem(a_lat) & mem(a_lat + 1) & mem(a_lat + 2) & mem(a_lat + 3);
 
-	-- Behavioral memory implementing the TS/TA handshake (1-cycle latency).
+	-- Behavioral memory implementing the TS/TA handshake. TA is asserted for a
+	-- SINGLE cycle (pulsed ack) - deliberately the hard case: combined with the
+	-- 1-in-3 ce enable, the pulse often lands in a ce-disabled cycle, so this
+	-- exercises the adapter's ta-capture-across-ce-gaps logic.
 	mem_proc : process(clk)
-		variable base : integer range 0 to 508;
-		variable n    : integer := 0;
+		variable base     : integer range 0 to 508;
+		variable n        : integer := 0;
+		variable serviced : std_logic := '0';
 	begin
 		if rising_edge(clk) then
 			ta <= '0';
-			if ts = '1' and ta = '0' then
-				ta    <= '1';
-				base  := to_integer(unsigned(addr(8 downto 2))) * 4;  -- align to 4
-				a_lat <= base;
-				if n < 40 then
-					report "acc#" & integer'image(n) &
-						" addr=0x" & to_hstring(addr) &
-						" rw=" & std_logic'image(rw) &
-						" be=" & to_string(be) &
-						" rword=0x" & to_hstring(mem(base) & mem(base+1) & mem(base+2) & mem(base+3)) &
-						" wdata=0x" & to_hstring(dout);
-					n := n + 1;
+			if ts = '1' then
+				if serviced = '0' then
+					base  := to_integer(unsigned(addr(8 downto 2))) * 4;  -- align to 4
+					a_lat <= base;
+					if n < 40 then
+						report "acc#" & integer'image(n) &
+							" addr=0x" & to_hstring(addr) &
+							" rw=" & std_logic'image(rw) &
+							" rword=0x" & to_hstring(mem(base) & mem(base+1) & mem(base+2) & mem(base+3)) &
+							" wdata=0x" & to_hstring(dout);
+						n := n + 1;
+					end if;
+					if rw = '0' then               -- write, honour byte enables
+						if be(3) = '1' then mem(base + 0) <= dout(31 downto 24); end if;
+						if be(2) = '1' then mem(base + 1) <= dout(23 downto 16); end if;
+						if be(1) = '1' then mem(base + 2) <= dout(15 downto  8); end if;
+						if be(0) = '1' then mem(base + 3) <= dout( 7 downto  0); end if;
+					end if;
+					ta <= '1';                     -- single-cycle ack pulse
+					serviced := '1';
 				end if;
-				if rw = '0' then               -- write, honour byte enables
-					if be(3) = '1' then mem(base + 0) <= dout(31 downto 24); end if;
-					if be(2) = '1' then mem(base + 1) <= dout(23 downto 16); end if;
-					if be(1) = '1' then mem(base + 2) <= dout(15 downto  8); end if;
-					if be(0) = '1' then mem(base + 3) <= dout( 7 downto  0); end if;
-				end if;
+			else
+				serviced := '0';
 			end if;
 		end if;
 	end process;

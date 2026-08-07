@@ -69,10 +69,15 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 - ✅ I/O map + byte lane validated against a real Quadra 950 ROM; addresses
   corrected (ASC $50F14000, SCSI $50F10000, VIA confirmed). See
   [ROM_VALIDATION.md](ROM_VALIDATION.md).
-- ⬜ `asc`: 4-voice wavetable mode + DFAC record path
-- ⬜ Save/load PRAM to MiSTer persistent storage (expose Caboose PRAM to hps_io)
-- ⬜ Confirm the 2nd SCSI channel address + VIA function mapping vs the ROM
-- ⬜ Cycle/timing tuning; regenerate the PLL; 33 MHz `ce` divider
+- ✅ PRAM save/restore: Caboose backup port wired to the hps_io NVRAM ioctl.
+  **Icarus-verified** (serial ↔ backup port share the array).
+- ✅ 33 MHz CPU clock-enable: `cpu_ce` divider enabled; the bus adapter captures
+  a pulsed TA across ce gaps. **GHDL-verified** (1-in-3 ce + pulsed ack boot).
+- ✅ VIA1/RTC port-B bit mapping corroborated against the ROM (see ROM_VALIDATION.md).
+- ⬜ `asc`: 4-voice wavetable mode + DFAC record path (FIFO mode is what Mac
+  sound uses; wavetable deferred)
+- ⬜ Confirm the 2nd SCSI channel address; regenerate the PLL; set CPU_DIV for
+  the real 33 MHz rate
 
 ## Phase 5 — Toward real 68040 fidelity ⬜
 - ⬜ MMU (enables modern System versions / VM / A/UX)

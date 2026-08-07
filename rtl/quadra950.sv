@@ -43,6 +43,12 @@ module quadra950
 	input      [10:0] ps2_key,
 	input      [24:0] ps2_mouse,
 
+	// PRAM backup (to hps_io persistence)
+	input      [7:0]  pram_bk_addr,
+	input             pram_bk_wr,
+	input      [7:0]  pram_bk_din,
+	output     [7:0]  pram_bk_dout,
+
 	// DDR3 (emulated main RAM)
 	output            DDRAM_CLK,
 	input             DDRAM_BUSY,
@@ -90,10 +96,18 @@ module quadra950
 	wire        cpu_ta;      // transfer acknowledge (to CPU)
 	wire  [2:0] cpu_fc;      // function code (user/supervisor, data/program)
 	wire  [2:0] ipl;         // interrupt priority level (from iobus), active low
-	// 33 MHz clock enable. Tied high for now: the CPU runs at the system clock
-	// (the bus adapter requires ce high until a real 33 MHz divider is added).
-	// TODO: drive from a divider off the PLL to emulate the true 33 MHz rate.
-	wire        cpu_ce = 1'b1;
+	// 33 MHz clock enable, generated from the system clock. The bus adapter
+	// tolerates ce<1 and captures a pulsed TA across ce gaps (validated in
+	// sim/ghdl with a 1-in-3 enable + pulsed ack). Set CPU_DIV so
+	// clk_sys/CPU_DIV ~= 33 MHz once the PLL is regenerated for real clocks.
+	localparam CPU_DIV = 2;
+	reg  [3:0] cpu_ce_cnt;
+	reg        cpu_ce;
+	always @(posedge clk_sys) begin
+		if (reset) begin cpu_ce_cnt <= 0; cpu_ce <= 1'b0; end
+		else if (cpu_ce_cnt == CPU_DIV-1) begin cpu_ce_cnt <= 0; cpu_ce <= 1'b1; end
+		else begin cpu_ce_cnt <= cpu_ce_cnt + 1'b1; cpu_ce <= 1'b0; end
+	end
 
 	cpu_wrapper cpu
 	(
@@ -218,6 +232,10 @@ module quadra950
 		.ps2_key  (ps2_key),
 		.ps2_mouse(ps2_mouse),
 		.ext_irq2 (scsi0_irq | scsi1_irq | asc_irq),
+		.bk_addr  (pram_bk_addr),
+		.bk_wr    (pram_bk_wr),
+		.bk_din   (pram_bk_din),
+		.bk_dout  (pram_bk_dout),
 		.ipl      (ipl)
 	);
 

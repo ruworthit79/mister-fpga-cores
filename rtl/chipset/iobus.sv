@@ -40,6 +40,12 @@ module iobus
 	// external interrupt sources (e.g. SCSI) folded into level 2
 	input             ext_irq2,
 
+	// PRAM backup port (to hps_io persistence)
+	input      [7:0]  bk_addr,
+	input             bk_wr,
+	input      [7:0]  bk_din,
+	output     [7:0]  bk_dout,
+
 	output     [2:0]  ipl          // 68k interrupt level, active low
 );
 
@@ -79,7 +85,8 @@ module iobus
 	caboose caboose (
 		.clk(clk), .reset(reset), .tick_1hz(tick_1hz),
 		.rtc_enb(via1_pb[2]), .rtc_clk(via1_pb[1]), .rtc_data_in(via1_pb[0]),
-		.rtc_data_out(rtc_dout), .rtc_data_oe(rtc_oe)
+		.rtc_data_out(rtc_dout), .rtc_data_oe(rtc_oe),
+		.bk_addr(bk_addr), .bk_wr(bk_wr), .bk_din(bk_din), .bk_dout(bk_dout)
 	);
 
 	// ---- ADB: PS/2 keyboard/mouse translation (host command side awaits the
