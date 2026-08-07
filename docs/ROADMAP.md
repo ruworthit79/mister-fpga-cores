@@ -29,12 +29,20 @@ Legend: ✅ done · 🚧 in progress · ⬜ not started
 - ⬜ Remaining before hardware: regenerate the PLL for real clocks; 33 MHz `ce`
   divider; clear the overlay on the VIA bit; DDR3 burst (line) reads for speed.
 
-## Phase 2 — Video + minimal I/O ⬜
-- ⬜ `dafb`: programmable CRTC, real VRAM, 1/2/4/8-bpp + CLUT/RAMDAC
-- ⬜ `via` ×2: integrate a 6522 core (timers, IRQ, overlay/sound-enable bits)
-- ⬜ `iobus`: JDB/Relayer sub-decode within `$50xx_xxxx`
+## Phase 2 — Video + minimal I/O 🚧 (core blocks done, sim-verified)
+- ✅ `dafb`: real VRAM framebuffer (4 byte-lanes), 256×24 CLUT/RAMDAC, 8bpp
+  indexed readout with base/stride regs, VBL interrupt. **Icarus-verified**
+  (VRAM/CLUT access + scanout). CRTC timing fixed 640×480 (programmable + more
+  depths still TODO).
+- ✅ `via` ×2: functional 6522 (T1/T2 timers, IFR/IER, ports, CA1/CB1 edges).
+  **Icarus-verified** (timer IRQ, masking). SR / CA2-CB2 handshakes TODO.
+- ✅ `iobus`: JDB/Relayer sub-decode of `$50F0_xxxx` to VIA1/VIA2, phase-2 `ce`,
+  IRQ→IPL roll-up (active low), DAFB VBL → VIA1 CA1.
+- ✅ Reset ROM overlay now clears on first `$40000000` access (per Apple's note).
 - ⬜ `caboose`: RTC/PRAM so the OS gets a valid clock
-- ⬜ **Milestone:** ROM draws the "Welcome to Macintosh" / disk icon
+- ⬜ VIA data byte-lane vs. real Mac wiring; verify against a real ROM
+- 🚧 **Milestone (ROM draws "Welcome to Macintosh"):** needs `caboose` + the
+  remaining I/O and a full mixed-language system sim / hardware build.
 
 ## Phase 3 — Storage + input (bootable) ⬜
 - ⬜ `scsi_ncr53c96` ×2: register set, phases, DMA to the block interface

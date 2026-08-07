@@ -132,12 +132,13 @@ module quadra950
 	wire to_ram = sel_ram & ~rom_overlay;        // normal RAM (overlay cleared)
 	wire sel_mem = to_rom | to_ram;
 
-	// ROM overlay: at reset the ROM is mapped over low memory until the OS
-	// clears the overlay bit (via VIA). Cleared on first write to high RAM.
+	// ROM overlay: at reset the MCU maps ROM over low memory ($0). Per Apple's
+	// developer note, the overlay is cleared on the first access to ROM's real
+	// location ($40000000), after which RAM appears at $0.
 	reg rom_overlay;
 	always @(posedge clk_sys) begin
 		if (reset) rom_overlay <= 1'b1;
-		// TODO: clear on VIA overlay bit write (IOSB/VIA glue).
+		else if (cpu_ts && cpu_addr[31:24] == 8'h40) rom_overlay <= 1'b0;
 	end
 
 	//========================================================================
@@ -199,6 +200,7 @@ module quadra950
 		.dout     (io_dout),
 		.rw       (cpu_rw),
 		.ack      (io_ack),
+		.vbl      (VBlank),        // DAFB vertical blank -> VIA1 CA1
 		.ipl      (ipl)
 	);
 

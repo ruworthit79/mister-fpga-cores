@@ -19,15 +19,24 @@ cd sim/ghdl && ./run.sh
 What it proves: reset-vector fetch (SSP/PC), instruction fetch/execute, the
 16-bit-clkena → 32-bit big-endian bus translation, byte lanes, and IPL polarity.
 
-## MCU ↔ DDR3 — Icarus Verilog (`sim/iverilog/`)
+## Verilog RTL — Icarus Verilog (`sim/iverilog/`)
 
-Exercises the memory controller (`rtl/chipset/mcu.sv`) against a behavioral
-DDR3 model (`ddr3_model.v`): ROM image load via `ioctl` and read-back in 68k
-big-endian order, full-word RAM write/read, and byte-enable partial writes.
+`./run.sh` builds and runs all three Verilog testbenches:
+
+- **`tb_mcu`** — memory controller (`rtl/chipset/mcu.sv`) vs. a behavioral DDR3
+  model: ROM image load via `ioctl` + big-endian read-back, RAM write/read,
+  byte-enable partial writes.
+- **`tb_via`** — 6522 VIA (`rtl/chipset/via.sv`): port output, T1 timer
+  underflow raising IRQ, read-to-clear, and IER interrupt masking.
+- **`tb_dafb`** — DAFB framebuffer (`rtl/video/dafb.sv`): CPU VRAM + CLUT
+  access, and 8bpp scanout indexed through the CLUT onto r/g/b (uses a tiny
+  CRTC so a frame is short).
 
 ```sh
 cd sim/iverilog && ./run.sh
 # -> PASS: MCU/DDR3 all checks passed
+# -> PASS: VIA all checks passed
+# -> PASS: DAFB all checks passed
 ```
 
 ## Not covered here

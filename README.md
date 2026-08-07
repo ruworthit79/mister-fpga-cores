@@ -3,15 +3,19 @@
 A work-in-progress **Apple Macintosh Quadra 950** (Motorola 68040) core for the
 [MiSTer FPGA](https://mister-devel.github.io/MkDocs_MiSTer/) platform.
 
-> **Status: Phase 1 in progress (CPU + memory, sim-verified).** The repository
-> has an accurate hardware spec, the MiSTer framework wiring, the system
-> interconnect with the real Quadra 950 memory map, and documented stubs for
-> every custom chip. A 68020-class CPU (TG68) is now integrated through a
-> `TS`/`TA` bus adapter, and a real MCU↔DDR3 memory controller with ROM loading
-> is in place. **Both are verified in simulation** (see [`sim/`](sim/)): the
-> real CPU boots and executes, and the memory controller loads and serves a ROM
-> image. It is not yet a full bootable system — the peripherals (video, VIA,
-> SCSI, ADB) are still stubs, and it targets a 68020-class CPU, not a true 040
+> **Status: Phase 2 in progress (CPU + memory + video/VIA, sim-verified).** The
+> repository has an accurate hardware spec, the MiSTer framework wiring, and the
+> system interconnect with the real Quadra 950 memory map. Working, simulation-
+> verified so far (see [`sim/`](sim/)):
+> - **CPU** — a 68020-class TG68 core through a `TS`/`TA` bus adapter (boots and
+>   executes; GHDL).
+> - **Memory** — a real MCU↔DDR3 controller with ROM loading (Icarus).
+> - **Video** — a DAFB framebuffer: VRAM + 256-colour CLUT + 8bpp scanout (Icarus).
+> - **I/O** — a 6522 VIA (timers + interrupts) wired through `iobus`, with the
+>   reset ROM overlay clearing on first `$40000000` access (Icarus).
+>
+> It is not yet a full bootable system — the RTC (Caboose), SCSI, ADB, floppy
+> and sound are still stubs, and it targets a 68020-class CPU, not a true 040
 > (see [`docs/CPU_NOTES.md`](docs/CPU_NOTES.md)).
 
 ## Why this is hard (read this first)
