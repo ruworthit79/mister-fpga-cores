@@ -48,3 +48,5 @@ sim/verilog-full/*.log
 # Verilator build artifacts
 sim/verilog-full/obj_dir/
 sim/verilog-full/boot_sim
+sim/verilog-full/boot_full
+sim/verilog-full/rom*.hex
