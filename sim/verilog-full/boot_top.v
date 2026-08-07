@@ -71,7 +71,7 @@ module boot_top;
 	// ---- progress trace via the CPU address bus (hierarchical) ----
 	// dut.cpu_addr / cpu_ts / cpu_rw / cpu_fc are wires inside quadra950.
 	integer nfetch = 0, nvbl = 0; reg [31:0] last_pc = 0; reg drew = 0;
-	reg ts_d = 0; integer stall = 0;
+	reg ts_d = 0; integer stall = 0; integer niolog = 0, nberr = 0;
 	always @(posedge clk) begin
 		ts_d <= dut.cpu_ts;
 		// stall detector: TS asserted but no completion (ta) for many cycles
@@ -86,10 +86,20 @@ module boot_top;
 		if (dut.cpu_ts && !ts_d) begin           // new bus cycle
 			if (dut.cpu_fc == 3'd6 || dut.cpu_fc == 3'd2) begin
 				nfetch = nfetch + 1;
-				if (nfetch < 300 || nfetch % 200000 == 0)
+				if (nfetch % 200000 == 0)
 					$display("[%0t] fetch#%0d PC=%08x fc=%b", $time, nfetch, dut.cpu_addr, dut.cpu_fc);
 			end
 			last_pc <= dut.cpu_addr;
+		end
+		// log I/O accesses on completion (ta or bus error): what the probe reads
+		if (dut.cpu_ts && (dut.cpu_ta || dut.cpu_berr) && niolog < 500) begin
+			if (dut.cpu_addr[31:24] >= 8'h50 && dut.cpu_addr[31:24] <= 8'h5F) begin
+				$display("IO %s addr=%08x %s data=%08x be=%b", dut.cpu_rw?"RD":"WR",
+					dut.cpu_addr, dut.cpu_berr?"BERR":"ack ",
+					dut.cpu_rw?dut.cpu_din:dut.cpu_dout, dut.cpu_be);
+				niolog = niolog + 1;
+				if (dut.cpu_berr) nberr = nberr + 1;
+			end
 		end
 		// video: did it ever draw a non-black pixel during active area?
 		if (ce_pix && !HBlank && !VBlank && (r|g|b) != 0 && !drew) begin
@@ -103,8 +113,9 @@ module boot_top;
 		$readmemh("rom64.hex", rom_ddr);
 		for (i = 0; i < 1048576; i = i + 1) ram_ddr[i] = 0;
 		repeat (20) @(posedge clk); #1 reset = 0;
-		repeat (40000000) @(posedge clk);
-		$display("=== stopped: %0d fetches, last PC=%08x, frames=%0d, drew=%b ===", nfetch, last_pc, nvbl, drew);
+		repeat (4000000) @(posedge clk);
+		$display("=== stopped: %0d fetches, last PC=%08x, frames=%0d, drew=%b, io_logged=%0d, berr=%0d ===",
+			nfetch, last_pc, nvbl, drew, niolog, nberr);
 		$finish;
 	end
 endmodule
