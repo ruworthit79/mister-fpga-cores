@@ -71,14 +71,23 @@ module boot_top;
 	// ---- progress trace via the CPU address bus (hierarchical) ----
 	// dut.cpu_addr / cpu_ts / cpu_rw / cpu_fc are wires inside quadra950.
 	integer nfetch = 0, nvbl = 0; reg [31:0] last_pc = 0; reg drew = 0;
-	reg ts_d = 0;
+	reg ts_d = 0; integer stall = 0;
 	always @(posedge clk) begin
 		ts_d <= dut.cpu_ts;
+		// stall detector: TS asserted but no completion (ta) for many cycles
+		if (dut.cpu_ts && !dut.cpu_ta) begin
+			stall = stall + 1;
+			if (stall == 3000) begin
+				$display("[%0t] >>> BUS STALL: addr=%08x rw=%b fc=%b (no TA - unmapped/no bus-error)",
+					$time, dut.cpu_addr, dut.cpu_rw, dut.cpu_fc);
+				$finish;
+			end
+		end else stall = 0;
 		if (dut.cpu_ts && !ts_d) begin           // new bus cycle
 			if (dut.cpu_fc == 3'd6 || dut.cpu_fc == 3'd2) begin
 				nfetch = nfetch + 1;
-				if (nfetch % 200000 == 0)
-					$display("[%0t] fetch#%0d PC=%08x  disk_led=%b vbl=%0d", $time, nfetch, dut.cpu_addr, disk_led, nvbl);
+				if (nfetch < 300 || nfetch % 200000 == 0)
+					$display("[%0t] fetch#%0d PC=%08x fc=%b", $time, nfetch, dut.cpu_addr, dut.cpu_fc);
 			end
 			last_pc <= dut.cpu_addr;
 		end
