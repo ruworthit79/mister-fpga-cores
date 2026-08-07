@@ -137,17 +137,37 @@ match what the Quadra 950 candidate expects (VIA images at `$50F0_1C00` vs
 `$5100_1C00` differ, since `+$100000` lands at `addr[23:16]=$00`, outside the
 VIA's `$F0` decode).
 
-## What full ROM-boot convergence requires (open work)
+## RESOLVED: machine-ID gate passed via alias-tolerant VIA decode
 
-1. Trace each `$31AC` candidate to find which one is the Quadra 950 and what
-   its `$46AA` probe expects (register bit-behaviour + which `+$N` aliases must
-   match). Then make that DecoderInfo's probed register decode/alias
-   accordingly in `iobus.sv`.
-2. For the model select, drive VIA1/VIA2 port-A/B input pins to the signature so
-   `$47AE`'s `d1 & mask` matches `$1408`/`$0E08` (Quadra 900/950).
-3. Expect **further** gates after identity: RAM sizing (MCU bank probing),
-   VIA/RTC time, ADB, then SCSI so a System file can be read. Each is its own
-   probe-fidelity step, debuggable in this same harness (CPU PC + I/O trace).
+Instrumenting the decision path showed candidate #1 (`$3162`) failing at
+`$3178` (`bne $2f58`): its `$46AA` probe read/write-tests VIA1 IER at
+`$50F0_1C00` **and** compares it against the image at `+$100000 = $5100_1C00`.
+Because our VIA decoded only the exact `$50F0` page, the alias read differed and
+the candidate failed. Modelling the Quadra's real **incomplete I/O decode** —
+VIA selected on the register-page pattern `addr[19:14]==0` with `addr[23:20]`
+treated as don't-care, so the VIAs alias every `$10_0000` — makes the alias
+respond identically. Result in the full-system harness:
 
-This is a long ROM-fidelity reverse-engineering tail; it is independent of the
-Phase-5 68040 CPU work (Level A/B/C), which does not depend on solving it.
+- Candidate #1 now **passes** the full `$46AA` sequence
+  (`$3178→$317C→$3186→$318A→$3194→$3198→$31A0`), runs the `$47AE` model probe,
+  and reaches the **table-match path** `$2F30→$2F3A→$2F44` — the ROM identified
+  the machine (Quadra family; DecoderInfo `@ $360C`, whose device bases match
+  the documented Q950 map).
+- Boot **advances past detection** into device configuration: it now probes the
+  further DecoderInfo device pages (`$50F8_xxxx`, `$50F4_xxxx`, …). Fetches
+  259K→300K, `berr=0`, last PC in the ROM image (`$40800000+`).
+
+Fix committed in `iobus.sv` (`in_via = addr[19:14]==0`). All eight Icarus unit
+tests and the three GHDL CPU tests still pass.
+
+## Next gate (open work)
+
+After identification the ROM enters a **device-configuration / timing phase**
+and currently loops there (heavy VIA1/VIA2 IER access at `$50F0_1C00`/
+`$50F0_3C00`, executing the `$46AA`-style register tests in the ROM image
+around `$4080_46xx`). This is the next probe-fidelity step to trace in this
+harness. Expect **further** gates after it: RAM sizing (MCU bank probing),
+VIA/RTC time + timer interrupts, ADB, then SCSI so a System file can be read.
+
+This remains a long ROM-fidelity tail, but the first and central gate — machine
+identification — is solved. It is independent of the Phase-5 68040 CPU work.

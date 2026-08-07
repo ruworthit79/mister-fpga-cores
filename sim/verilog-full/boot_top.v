@@ -71,7 +71,7 @@ module boot_top;
 	// ---- progress trace via the CPU address bus (hierarchical) ----
 	// dut.cpu_addr / cpu_ts / cpu_rw / cpu_fc are wires inside quadra950.
 	integer nfetch = 0, nvbl = 0; reg [31:0] last_pc = 0; reg drew = 0;
-	reg ts_d = 0; integer stall = 0; integer niolog = 0, nberr = 0;
+	reg ts_d = 0; integer stall = 0; integer niolog = 0, nberr = 0, ndec = 0, ntbl = 0;
 	always @(posedge clk) begin
 		ts_d <= dut.cpu_ts;
 		// stall detector: TS asserted but no completion (ta) for many cycles
@@ -89,9 +89,24 @@ module boot_top;
 				if (nfetch % 200000 == 0)
 					$display("[%0t] fetch#%0d PC=%08x fc=%b", $time, nfetch, dut.cpu_addr, dut.cpu_fc);
 			end
-			// late capture window: dump the exact loop body (PC + all bus cycles)
-			if (nfetch >= 250000 && nfetch <= 250120)
-				$display("BUS %s addr=%08x fc=%b %s", dut.cpu_rw?"RD":"WR", dut.cpu_addr, dut.cpu_fc, dut.cpu_berr?"BERR":"");
+			// detection decision-path trace: log key branch targets in the
+			// candidate probe ($3162/$46AA) for the first few iterations.
+			if ((dut.cpu_fc == 3'd6 || dut.cpu_fc == 3'd2) && ndec < 120) begin
+				case (dut.cpu_addr)
+					32'h00003162, 32'h00003178, 32'h0000317c, 32'h00003186,
+					32'h0000318a, 32'h00003194, 32'h00003198, 32'h000031a0,
+					32'h00002f52, 32'h00002f58, 32'h00002f30, 32'h00002f3a,
+					32'h00002f44, 32'h000046aa, 32'h00002f64, 32'h000047ae:
+						begin $display("DEC pc=%08x", dut.cpu_addr); ndec = ndec + 1; end
+					default: ;
+				endcase
+			end
+			// log operand reads into the box-ID tables ($31c4 entries live at
+			// $36bc..$3abc) to identify which machine entry matched.
+			if ((dut.cpu_fc == 3'd5 || dut.cpu_fc == 3'd1) &&
+			    dut.cpu_addr >= 32'h000036a0 && dut.cpu_addr < 32'h00003b00 && ntbl < 200) begin
+				$display("TBL rd addr=%08x", dut.cpu_addr); ntbl = ntbl + 1;
+			end
 			last_pc <= dut.cpu_addr;
 		end
 		// log I/O accesses on completion (ta or bus error): what the probe reads

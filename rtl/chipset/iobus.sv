@@ -58,10 +58,20 @@ module iobus
 		else begin ce_cnt <= ce_cnt + 1'b1; via_ce <= 1'b0; end
 	end
 
-	// ---- decode (within $50xx_xxxx; addr is cpu_addr[23:0]) ----
-	wire in_via   = (addr[23:16] == 8'hF0);      // $50F0_xxxx
-	wire via1_sel = sel & in_via & ~addr[13];    // $F0_0000..$F0_1FFF
-	wire via2_sel = sel & in_via &  addr[13];    // $F0_2000..$F0_3FFF
+	// ---- decode (within $5x_xxxxxx I/O space; addr is cpu_addr[23:0]) ----
+	// The Quadra decodes the VIA page incompletely: the VIAs occupy the low
+	// $4000 of the $50F0_0000 "device page" (VIA1 = $F0_0000, VIA2 = $F0_2000,
+	// register at bits [12:9]), but the upper address nibble ($F) is NOT fully
+	// decoded, so the VIAs alias throughout the $5x_xxxxxx I/O space every
+	// $10_0000. The ROM's hardware-detection probe depends on this: it verifies
+	// VIA1 IER at $50F0_1C00 responds identically at $5100_1C00 (= +$100000).
+	// So select the VIA on the register-page pattern (addr[19:14]==0) and treat
+	// addr[23:20] as don't-care, rather than requiring addr[23:16]==$F0.
+	// (SCC $F0_4000, SONIC $F0_A000 have addr[15:14]!=0, so they are excluded;
+	//  SCSI/ASC are decoded and muxed out one level up in quadra950.sv.)
+	wire in_via   = (addr[19:14] == 6'b0);       // VIA page, alias-tolerant
+	wire via1_sel = sel & in_via & ~addr[13];    // ...0_0000..0_1FFF (+ aliases)
+	wire via2_sel = sel & in_via &  addr[13];    // ...0_2000..0_3FFF (+ aliases)
 	wire [3:0] via_reg = addr[12:9];             // 512-byte register spacing
 
 	// ---- VIA1 ----
