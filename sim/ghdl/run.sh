@@ -17,7 +17,7 @@ ghdl -a $STD $RTL/cpu_wrapper.vhd
 # Each testbench self-checks and calls std.env.finish; a failed assertion aborts
 # with a non-zero exit (set -e). Filter the synopsys reset-time metavalue noise.
 FILTER='CONV_INTEGER|std_logic_arith|metavalue|numeric_std'
-for tb in tb_cpu tb_cpu_040 tb_cpu_040nop tb_move16 tb_fpu; do
+for tb in tb_cpu tb_cpu_040 tb_cpu_040nop tb_move16 tb_fpu tb_cpu_fpu; do
 	ghdl -a $STD $tb.vhd
 	ghdl -e $STD $tb
 	echo "--- $tb ---"

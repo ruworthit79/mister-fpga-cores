@@ -138,7 +138,14 @@ entity TG68KdotC_Kernel is
 		skipFetch				: out std_logic;
 		regin_out				: out std_logic_vector(31 downto 0);
 		CACR_out					: out std_logic_vector( 3 downto 0);
-		VBR_out					: out std_logic_vector(31 downto 0)
+		VBR_out					: out std_logic_vector(31 downto 0);
+-- FPU (coprocessor id 1, F-line) command interface to fpu_040
+		fpu_op_valid			: out std_logic;						-- 1-cycle strobe
+		fpu_cmd					: out std_logic_vector(4 downto 0);	-- FPU_* command
+		fpu_src					: out std_logic_vector(2 downto 0);	-- FPm
+		fpu_dst					: out std_logic_vector(2 downto 0);	-- FPn
+		fpu_done					: in  std_logic:='0';					-- FPU op complete
+		fpu_unimpl				: in  std_logic:='0'					-- FPU op unimplemented -> F-line trap
 		);
 end TG68KdotC_Kernel;
 
@@ -380,9 +387,16 @@ architecture logic of TG68KdotC_Kernel is
 	-- MOVE16 (Ax)+,(Ay)+ : 16 bytes = 4 longwords. Counter of longwords left.
 	signal m16_cnt				: std_logic_vector(2 downto 0);
 
+	-- FPU (coprocessor id 1) F-line dispatch: command-word decode + handshake.
+	signal fpu_opmode			: std_logic_vector(6 downto 0);	-- sndOPC(6:0)
+	signal fpu_supported		: std_logic;							-- reg-reg op we can run
+	signal fpu_started			: std_logic;							-- op_valid already issued
+	signal fpu_ready			: std_logic;							-- latched fpu_done
+	signal fpu_trap			: std_logic;							-- latched fpu_unimpl
 
 
-BEGIN  
+
+BEGIN
 
 ALU: TG68K_ALU   
 	generic map(
@@ -464,7 +478,60 @@ ALU: TG68K_ALU
 	nLDS <= memmaskmux(4);
 	clkena_lw <= '1' WHEN clkena_in='1' AND memmaskmux(3)='1' ELSE '0';
 	clr_berr <= '1' WHEN setopcode='1' AND trap_berr='1' ELSE '0';
-	
+
+-----------------------------------------------------------------------------
+-- FPU (coprocessor id 1, F-line) command-word decode + handshake
+-----------------------------------------------------------------------------
+-- The command word (sndOPC) has the general form
+--   0 R/M 0 SSS DDD ooooooo   (bit15=0, bit14=R/M, bit13=0,
+--                              SSS=source FPm, DDD=dest FPn, opmode=ooooooo)
+-- Only the register-to-register general form (R/M=0) with a supported opmode
+-- is executed here; everything else takes the F-line trap (via fpu1 below).
+	fpu_opmode <= sndOPC(6 downto 0);
+	fpu_supported <= '1' WHEN sndOPC(15)='0' AND sndOPC(14)='0' AND sndOPC(13)='0'
+	                          AND (fpu_opmode="0000000"      -- $00 FMOVE FPm,FPn
+	                            OR fpu_opmode="0011000"      -- $18 FABS
+	                            OR fpu_opmode="0011010"      -- $1A FNEG
+	                            OR fpu_opmode="0111010")     -- $3A FTST
+	                 ELSE '0';
+	-- FPU command encoding (mirror of fpu_040): FMOVE_RR=1 FABS=4 FNEG=5 FTST=6
+	fpu_cmd <= "00001" WHEN fpu_opmode="0000000" ELSE
+	           "00100" WHEN fpu_opmode="0011000" ELSE
+	           "00101" WHEN fpu_opmode="0011010" ELSE
+	           "00110" WHEN fpu_opmode="0111010" ELSE
+	           "00000";
+	fpu_src <= sndOPC(12 downto 10);	-- FPm
+	fpu_dst <= sndOPC(9 downto 7);		-- FPn
+
+	-- Issue a single op_valid strobe on entry to the fpu1 wait state, then latch
+	-- the FPU's done/unimpl. Runs on the free clk (the FPU is not ce-gated), so
+	-- the 1-cycle FPU result is captured regardless of the CPU's ce cadence.
+	fpu_handshake : PROCESS (clk)
+	BEGIN
+		IF rising_edge(clk) THEN
+			IF Reset='1' THEN
+				fpu_op_valid <= '0';
+				fpu_started  <= '0';
+				fpu_ready    <= '0';
+				fpu_trap     <= '0';
+			ELSE
+				fpu_op_valid <= '0';
+				IF micro_state = fpu1 THEN
+					IF fpu_supported='1' AND fpu_started='0' THEN
+						fpu_op_valid <= '1';
+						fpu_started  <= '1';
+					END IF;
+					IF fpu_done='1'   THEN fpu_ready <= '1'; END IF;
+					IF fpu_unimpl='1' THEN fpu_trap  <= '1'; END IF;
+				ELSE
+					fpu_started <= '0';
+					fpu_ready   <= '0';
+					fpu_trap    <= '0';
+				END IF;
+			END IF;
+		END IF;
+	END PROCESS;
+
 	PROCESS (clk, nReset)
 	BEGIN
 		IF nReset='0' THEN
@@ -1438,7 +1505,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		 build_bcd, set_Z_error, trapd, movem_run, last_data_read, set, set_V_Flag, z_error, trap_trace, trap_interrupt,
 		 SVmode, preSVmode, stop, long_done, ea_only, setstate, addrvalue, execOPC, exec_write_back, exe_datatype,
 		 datatype, interrupt, c_out, trapmake, rot_cnt, brief, addr, trap_trapv, last_data_in, use_VBR_Stackframe,
-		 long_start, set_datatype, sndOPC, set_exec, exec, ea_build_now, reg_QA, reg_QB, make_berr, trap_berr)
+		 long_start, set_datatype, sndOPC, set_exec, exec, ea_build_now, reg_QA, reg_QB, make_berr, trap_berr,
+		 fpu_supported, fpu_ready, fpu_trap)
 	BEGIN
 		TG68_PC_brw <= '0';	
 		setstate <= "00";
@@ -3124,7 +3192,17 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				-- raise a privilege violation in user mode exactly like a real
 				-- 040. FPU F-line ops ($F2xx/$F3xx) fall through to trap_1111
 				-- below (LC040 personality: software-emulated by the FPSP).
-				IF cpu(1)='1' AND opcode(11 downto 3)="011000100" THEN
+				IF cpu(1)='1' AND opcode(11 downto 6)="001000" THEN
+					-- FPU (coprocessor id 1) general instruction ($F200, cpGEN).
+					-- Fetch the command word (-> sndOPC), then dispatch in fpu1.
+					-- The reg-to-reg structural ops (FMOVE/FABS/FNEG/FTST, R/M=0)
+					-- run on the integrated fpu_040; anything else takes the
+					-- F-line trap (in fpu1), exactly as before.
+					IF decodeOPC='1' THEN
+						set(get_2ndOPC) <= '1';		-- consume command word
+						next_micro_state <= fpu1;
+					END IF;
+				ELSIF cpu(1)='1' AND opcode(11 downto 3)="011000100" THEN
 					-- MOVE16 (Ax)+,(Ay)+  (opcode $F620-$F627, 2nd word 1yyy000000000000)
 					-- 16-byte (four longword) block move: read a longword from (Ax),
 					-- write it to (Ay), then Ax+=4 and Ay+=4, repeated four times.
@@ -3759,6 +3837,22 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						next_micro_state <= nop;
 					ELSE						--more longwords: read the next one
 						next_micro_state <= m16r;
+					END IF;
+
+				WHEN fpu1 =>		-- FPU F-line dispatch (command word in sndOPC)
+					IF fpu_supported='0' OR fpu_trap='1' THEN
+						-- unsupported op (memory source, arithmetic, ...) or the
+						-- FPU flagged it unimplemented: take the F-line trap (FPSP).
+						trap_1111 <= '1';
+						trapmake  <= '1';
+					ELSIF fpu_ready='1' THEN
+						-- FPU completed: finish normally (default setstate="00"
+						-- fetches the next opcode; default next_micro_state=idle).
+						NULL;
+					ELSE
+						-- wait for the FPU: no bus access, hold PC, stay in fpu1.
+						setstate <= "01";
+						next_micro_state <= fpu1;
 					END IF;
 
 				WHEN link1 =>		-- link

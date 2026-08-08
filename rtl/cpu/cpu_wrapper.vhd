@@ -37,7 +37,11 @@ entity cpu_wrapper is
 		                                             -- cycle and take exception
 		fc    : out std_logic_vector(2 downto 0);    -- function code
 
-		ipl   : in  std_logic_vector(2 downto 0)     -- interrupt priority level
+		ipl   : in  std_logic_vector(2 downto 0);    -- interrupt priority level
+
+		-- FPU status (debug/visibility): the integrated 68040 FPU state
+		fpu_fpsr    : out std_logic_vector(31 downto 0);  -- live FPSR
+		fpu_present : out std_logic                       -- 1 = FPU present
 	);
 end cpu_wrapper;
 
@@ -76,7 +80,32 @@ architecture rtl of cpu_wrapper is
 			skipFetch      : out std_logic;
 			regin_out      : out std_logic_vector(31 downto 0);
 			CACR_out       : out std_logic_vector(3 downto 0);
-			VBR_out        : out std_logic_vector(31 downto 0)
+			VBR_out        : out std_logic_vector(31 downto 0);
+			fpu_op_valid   : out std_logic;
+			fpu_cmd        : out std_logic_vector(4 downto 0);
+			fpu_src        : out std_logic_vector(2 downto 0);
+			fpu_dst        : out std_logic_vector(2 downto 0);
+			fpu_done       : in  std_logic;
+			fpu_unimpl     : in  std_logic
+		);
+	end component;
+
+	component fpu_040 is
+		port(
+			clk       : in  std_logic;
+			reset     : in  std_logic;
+			op_valid  : in  std_logic;
+			cmd       : in  std_logic_vector(4 downto 0);
+			src_reg   : in  std_logic_vector(2 downto 0);
+			dst_reg   : in  std_logic_vector(2 downto 0);
+			cr_sel    : in  std_logic_vector(2 downto 0);
+			ext_in    : in  std_logic_vector(79 downto 0);
+			ext_out   : out std_logic_vector(79 downto 0);
+			fpsr_out  : out std_logic_vector(31 downto 0);
+			fpcr_out  : out std_logic_vector(31 downto 0);
+			present   : out std_logic;
+			done      : out std_logic;
+			unimpl    : out std_logic
 		);
 	end component;
 
@@ -110,6 +139,14 @@ architecture rtl of cpu_wrapper is
 	signal mem_access : std_logic;
 	signal uds, lds   : std_logic;
 
+	-- Kernel <-> FPU command interface
+	signal k_fpu_op_valid : std_logic;
+	signal k_fpu_cmd      : std_logic_vector(4 downto 0);
+	signal k_fpu_src      : std_logic_vector(2 downto 0);
+	signal k_fpu_dst      : std_logic_vector(2 downto 0);
+	signal k_fpu_done     : std_logic;
+	signal k_fpu_unimpl   : std_logic;
+
 begin
 
 	cpu : TG68KdotC_Kernel
@@ -127,7 +164,21 @@ begin
 			busstate => k_busstate, longword => k_longword,
 			nResetOut => u_nrst, FC => k_fc, clr_berr => u_clrberr,
 			skipFetch => k_skip, regin_out => u_regin,
-			CACR_out => u_cacr, VBR_out => u_vbr
+			CACR_out => u_cacr, VBR_out => u_vbr,
+			fpu_op_valid => k_fpu_op_valid, fpu_cmd => k_fpu_cmd,
+			fpu_src => k_fpu_src, fpu_dst => k_fpu_dst,
+			fpu_done => k_fpu_done, fpu_unimpl => k_fpu_unimpl
+		);
+
+	-- Integrated 68040 FPU. Driven by the kernel's F-line (cp id 1) decode.
+	fpu : fpu_040
+		port map(
+			clk => clk, reset => reset,
+			op_valid => k_fpu_op_valid, cmd => k_fpu_cmd,
+			src_reg => k_fpu_src, dst_reg => k_fpu_dst,
+			cr_sel => "000", ext_in => (others => '0'),
+			ext_out => open, fpsr_out => fpu_fpsr, fpcr_out => open,
+			present => fpu_present, done => k_fpu_done, unimpl => k_fpu_unimpl
 		);
 
 	mem_access <= '0' when k_busstate = "01" else '1';

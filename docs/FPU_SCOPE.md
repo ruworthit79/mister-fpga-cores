@@ -40,12 +40,18 @@ Verified by `sim/ghdl/tb_fpu.vhd` (in the GHDL suite):
 
 ## Remaining work (ordered)
 
-1. **Kernel F-line integration (5.3 glue).** Today the TG68 kernel traps ALL
-   `$F` line. Add FPU-opcode decode ($F2xx / cp-id 001) in the kernel: parse the
-   command word (R/M, source specifier, register/EA), fetch the operand via the
-   normal EA machinery, drive `fpu_040`, and write back FPn or the EA. On
-   `unimpl`, take the existing line-F trap. This is the same kind of microcode
-   work as MOVE16, and is the gate to the FPU doing anything for software.
+1. **Kernel F-line integration (5.3 glue).** ✅ DONE for the register-to-register
+   general form. The kernel now decodes `$F200` (cpGEN, cp-id 1), consumes the
+   command word (`get_2ndOPC`→`sndOPC`), and in a new `fpu1` microstate drives
+   `fpu_040` for the reg-reg structural ops (FMOVE/FABS/FNEG/FTST, R/M=0) via a
+   free-running handshake (op_valid strobe + latched done/unimpl, decoupled from
+   the CPU ce cadence). On `unimpl` or any unsupported form it takes the line-F
+   trap. `cpu_wrapper` instantiates `fpu_040` and exposes `fpu_fpsr`/
+   `fpu_present`. Verified by `sim/ghdl/tb_cpu_fpu.vhd` (the CPU runs FTST/FNEG
+   live, FPSR updates, no trap). **Still to add here:** the **memory-operand
+   path** — FMOVE.X `<ea>`↔FPn (with the 96-bit extended memory format) and
+   FMOVE to/from FPCR/FPSR/FPIAR via an EA — needed before FP values can come
+   from memory (i.e. before real FP software does anything useful).
 2. **Arithmetic datapath (5.3b) — the big lift.** FADD/FSUB/FMUL/FDIV/FSQRT/
    FCMP/FINT with correct rounding (FPCR) and IEEE flags (FPSR). Options:
    - adapt an open FPU (the OpenCores FPU / the reverse-engineered **MC68881

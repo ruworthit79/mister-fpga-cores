@@ -13,6 +13,7 @@ ghdl synth --std=08 -fsynopsys --out=verilog \
 	$RTL/tg68k/TG68K_Pack.vhd \
 	$RTL/tg68k/TG68K_ALU.vhd \
 	$RTL/tg68k/TG68KdotC_Kernel.vhd \
+	$RTL/fpu_040.vhd \
 	$RTL/cpu_wrapper.vhd \
 	-e cpu_wrapper > "$OUT" 2> convert.log
 
