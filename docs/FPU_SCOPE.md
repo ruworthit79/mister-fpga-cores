@@ -23,9 +23,9 @@ to the FPSP** (Floating-Point Software Package) — Apple ships the FPSP in the
 ROM/OS. So a faithful core does NOT need every instruction in silicon; it needs
 the hardware subset + a correct "unimplemented → F-line trap" path.
 
-## Landed this phase — the FPU foundation (`rtl/cpu/fpu_040.sv`)
+## Landed this phase — the FPU foundation (`rtl/cpu/fpu_040.vhd`)
 
-Verified by `sim/iverilog/tb_fpu.v` (in the Icarus suite):
+Verified by `sim/ghdl/tb_fpu.vhd` (in the GHDL suite):
 
 - Full register model: FP0–FP7, FPCR, FPSR, FPIAR.
 - Structural ops (no arithmetic datapath needed): **FMOVE** (reg↔reg, load,

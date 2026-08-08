@@ -1,0 +1,162 @@
+------------------------------------------------------------------------------
+--  fpu_040 - 68040 Floating-Point Unit (VHDL, integrated into the TG68 CPU)
+--
+--  Owns the FPU programming model (FP0-FP7 in 80-bit extended precision, plus
+--  FPCR / FPSR / FPIAR) and executes commands issued by the kernel's F-line
+--  (coprocessor id 1) decode. This is the VHDL sibling of the validated
+--  rtl/cpu/fpu_040.sv foundation, in VHDL so it lives inside the VHDL CPU core
+--  and is exercised by the GHDL CPU testbenches. See docs/FPU_SCOPE.md.
+--
+--  Implemented: the "structural" ops (no arithmetic datapath) - FMOVE (reg,
+--  load, store), FABS, FNEG, FTST, FMOVE to/from FPCR/FPSR/FPIAR, and IEEE
+--  classification -> FPSR condition codes. Arithmetic (FADD/FMUL/...) raises
+--  `unimpl` so the CPU takes the F-line trap (-> Apple FPSP), exactly as a real
+--  68040 does for its unimplemented set.
+------------------------------------------------------------------------------
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+entity fpu_040 is
+	port(
+		clk       : in  std_logic;
+		reset     : in  std_logic;
+
+		op_valid  : in  std_logic;                       -- 1-cycle strobe
+		cmd       : in  std_logic_vector(4 downto 0);    -- FPU_* command
+		src_reg   : in  std_logic_vector(2 downto 0);    -- FPm
+		dst_reg   : in  std_logic_vector(2 downto 0);    -- FPn
+		cr_sel    : in  std_logic_vector(2 downto 0);    -- control-reg select
+		ext_in    : in  std_logic_vector(79 downto 0);   -- external operand
+		ext_out   : out std_logic_vector(79 downto 0);   -- external result
+
+		fpsr_out  : out std_logic_vector(31 downto 0);
+		fpcr_out  : out std_logic_vector(31 downto 0);
+		present   : out std_logic;                       -- 1 = FPU present
+		done      : out std_logic;                       -- op completed
+		unimpl    : out std_logic                        -- -> FPSP trap
+	);
+end fpu_040;
+
+architecture rtl of fpu_040 is
+
+	-- command encoding (mirror of the SystemVerilog foundation)
+	constant FPU_NOP      : std_logic_vector(4 downto 0) := "00000";
+	constant FPU_FMOVE_RR : std_logic_vector(4 downto 0) := "00001";
+	constant FPU_FMOVE_LD : std_logic_vector(4 downto 0) := "00010";
+	constant FPU_FMOVE_ST : std_logic_vector(4 downto 0) := "00011";
+	constant FPU_FABS     : std_logic_vector(4 downto 0) := "00100";
+	constant FPU_FNEG     : std_logic_vector(4 downto 0) := "00101";
+	constant FPU_FTST     : std_logic_vector(4 downto 0) := "00110";
+	constant FPU_TO_CR    : std_logic_vector(4 downto 0) := "00111";
+	constant FPU_FROM_CR  : std_logic_vector(4 downto 0) := "01000";
+	constant FPU_ARITH    : std_logic_vector(4 downto 0) := "01001";
+
+	-- control-reg select
+	constant CR_FPCR  : std_logic_vector(2 downto 0) := "001";
+	constant CR_FPSR  : std_logic_vector(2 downto 0) := "010";
+	constant CR_FPIAR : std_logic_vector(2 downto 0) := "100";
+
+	type reg_array is array(0 to 7) of std_logic_vector(79 downto 0);
+	signal fpreg : reg_array;
+	signal FPCR  : std_logic_vector(31 downto 0);
+	signal FPSR  : std_logic_vector(31 downto 0);
+	signal FPIAR : std_logic_vector(31 downto 0);
+
+	-- classify: returns condition codes {N, Z, I(nf), NAN}
+	function classify(v : std_logic_vector(79 downto 0)) return std_logic_vector is
+		variable e   : std_logic_vector(14 downto 0);
+		variable frac: std_logic_vector(62 downto 0);
+		variable m   : std_logic_vector(63 downto 0);
+		variable z, inf, nan, n : std_logic;
+		variable cc  : std_logic_vector(3 downto 0);
+	begin
+		e    := v(78 downto 64);
+		frac := v(62 downto 0);
+		m    := v(63 downto 0);
+		if (unsigned(e) = 0) and (unsigned(m) = 0) then z := '1'; else z := '0'; end if;
+		if (e = "111111111111111") and (unsigned(frac) = 0) then inf := '1'; else inf := '0'; end if;
+		if (e = "111111111111111") and (unsigned(frac) /= 0) then nan := '1'; else nan := '0'; end if;
+		n := v(79) and (not nan);
+		cc := n & z & inf & nan;
+		return cc;
+	end function;
+
+begin
+
+	present  <= '1';
+	fpsr_out <= FPSR;
+	fpcr_out <= FPCR;
+
+	process(clk)
+		variable src : std_logic_vector(79 downto 0);
+		variable cc  : std_logic_vector(3 downto 0);
+		variable res : std_logic_vector(79 downto 0);
+	begin
+		if rising_edge(clk) then
+			done   <= '0';
+			unimpl <= '0';
+			if reset = '1' then
+				for i in 0 to 7 loop fpreg(i) <= (others => '0'); end loop;
+				FPCR    <= (others => '0');
+				FPSR    <= (others => '0');
+				FPIAR   <= (others => '0');
+				ext_out <= (others => '0');
+			elsif op_valid = '1' then
+				src  := fpreg(to_integer(unsigned(src_reg)));
+				done <= '1';
+				case cmd is
+					when FPU_NOP => null;
+
+					when FPU_FMOVE_RR =>
+						fpreg(to_integer(unsigned(dst_reg))) <= src;
+						cc := classify(src);
+						FPSR(27 downto 24) <= cc;
+
+					when FPU_FMOVE_LD =>
+						fpreg(to_integer(unsigned(dst_reg))) <= ext_in;
+						cc := classify(ext_in);
+						FPSR(27 downto 24) <= cc;
+
+					when FPU_FMOVE_ST =>
+						ext_out <= fpreg(to_integer(unsigned(src_reg)));
+
+					when FPU_FABS =>
+						res := '0' & src(78 downto 0);
+						fpreg(to_integer(unsigned(dst_reg))) <= res;
+						FPSR(27 downto 24) <= classify(res);
+
+					when FPU_FNEG =>
+						res := (not src(79)) & src(78 downto 0);
+						fpreg(to_integer(unsigned(dst_reg))) <= res;
+						FPSR(27 downto 24) <= classify(res);
+
+					when FPU_FTST =>
+						FPSR(27 downto 24) <= classify(src);
+
+					when FPU_TO_CR =>
+						case cr_sel is
+							when CR_FPCR  => FPCR  <= ext_in(31 downto 0);
+							when CR_FPSR  => FPSR  <= ext_in(31 downto 0);
+							when CR_FPIAR => FPIAR <= ext_in(31 downto 0);
+							when others   => null;
+						end case;
+
+					when FPU_FROM_CR =>
+						case cr_sel is
+							when CR_FPCR  => ext_out <= x"000000000000" & FPCR;
+							when CR_FPSR  => ext_out <= x"000000000000" & FPSR;
+							when CR_FPIAR => ext_out <= x"000000000000" & FPIAR;
+							when others   => ext_out <= (others => '0');
+						end case;
+
+					-- arithmetic + rounding conversions not implemented -> FPSP
+					when others =>
+						done   <= '0';
+						unimpl <= '1';
+				end case;
+			end if;
+		end if;
+	end process;
+
+end rtl;

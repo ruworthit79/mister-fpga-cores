@@ -1,0 +1,134 @@
+------------------------------------------------------------------------------
+--  tb_fpu - 68040 FPU foundation test (GHDL, VHDL fpu_040)
+--
+--  Validates the VHDL fpu_040 (register model + structural ops + IEEE
+--  classification) that is wired into the CPU. Mirrors sim/iverilog/tb_fpu.v.
+------------------------------------------------------------------------------
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+entity tb_fpu is
+end tb_fpu;
+
+architecture sim of tb_fpu is
+	signal clk      : std_logic := '0';
+	signal reset    : std_logic := '1';
+	signal op_valid : std_logic := '0';
+	signal cmd      : std_logic_vector(4 downto 0) := (others => '0');
+	signal src_reg  : std_logic_vector(2 downto 0) := (others => '0');
+	signal dst_reg  : std_logic_vector(2 downto 0) := (others => '0');
+	signal cr_sel   : std_logic_vector(2 downto 0) := (others => '0');
+	signal ext_in   : std_logic_vector(79 downto 0) := (others => '0');
+	signal ext_out  : std_logic_vector(79 downto 0);
+	signal fpsr_out : std_logic_vector(31 downto 0);
+	signal fpcr_out : std_logic_vector(31 downto 0);
+	signal present  : std_logic;
+	signal done     : std_logic;
+	signal unimpl   : std_logic;
+
+	constant FPU_FMOVE_RR : std_logic_vector(4 downto 0) := "00001";
+	constant FPU_FMOVE_LD : std_logic_vector(4 downto 0) := "00010";
+	constant FPU_FMOVE_ST : std_logic_vector(4 downto 0) := "00011";
+	constant FPU_FABS     : std_logic_vector(4 downto 0) := "00100";
+	constant FPU_FNEG     : std_logic_vector(4 downto 0) := "00101";
+	constant FPU_FTST     : std_logic_vector(4 downto 0) := "00110";
+	constant FPU_TO_CR    : std_logic_vector(4 downto 0) := "00111";
+	constant FPU_FROM_CR  : std_logic_vector(4 downto 0) := "01000";
+	constant FPU_ARITH    : std_logic_vector(4 downto 0) := "01001";
+	constant CR_FPCR      : std_logic_vector(2 downto 0) := "001";
+
+	constant P1   : std_logic_vector(79 downto 0) := x"3FFF8000000000000000";
+	constant N1   : std_logic_vector(79 downto 0) := x"BFFF8000000000000000";
+	constant ZERO : std_logic_vector(79 downto 0) := x"00000000000000000000";
+	constant PINF : std_logic_vector(79 downto 0) := x"7FFF8000000000000000";
+	constant QNAN : std_logic_vector(79 downto 0) := x"7FFFC000000000000000";
+
+	signal unimpl_latch : std_logic := '0';
+
+	procedure issue(signal clk_s : in std_logic;
+	                signal ov : out std_logic; signal c : out std_logic_vector(4 downto 0);
+	                signal s : out std_logic_vector(2 downto 0); signal d : out std_logic_vector(2 downto 0);
+	                signal cr : out std_logic_vector(2 downto 0); signal e : out std_logic_vector(79 downto 0);
+	                cc : std_logic_vector(4 downto 0); ss : std_logic_vector(2 downto 0);
+	                dd : std_logic_vector(2 downto 0); crc : std_logic_vector(2 downto 0);
+	                ee : std_logic_vector(79 downto 0)) is
+	begin
+		wait until falling_edge(clk_s);
+		c <= cc; s <= ss; d <= dd; cr <= crc; e <= ee; ov <= '1';
+		wait until falling_edge(clk_s);
+		ov <= '0';
+		wait until falling_edge(clk_s);
+	end procedure;
+
+begin
+	dut : entity work.fpu_040
+		port map(clk=>clk, reset=>reset, op_valid=>op_valid, cmd=>cmd,
+		         src_reg=>src_reg, dst_reg=>dst_reg, cr_sel=>cr_sel,
+		         ext_in=>ext_in, ext_out=>ext_out, fpsr_out=>fpsr_out,
+		         fpcr_out=>fpcr_out, present=>present, done=>done, unimpl=>unimpl);
+
+	clk <= not clk after 5 ns;
+
+	-- latch the 1-cycle unimpl pulse
+	process(clk) begin
+		if rising_edge(clk) then
+			if unimpl = '1' then unimpl_latch <= '1'; end if;
+		end if;
+	end process;
+
+	stim : process
+		variable errors : integer := 0;
+		procedure chk(cond : boolean; msg : string) is
+		begin
+			if not cond then report "FAIL: " & msg severity warning; errors := errors + 1; end if;
+		end procedure;
+	begin
+		wait for 40 ns; reset <= '0'; wait until falling_edge(clk);
+
+		chk(present = '1', "present should be 1");
+
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "000", "000", P1);
+		chk(fpsr_out(27)='0' and fpsr_out(26)='0' and fpsr_out(25)='0' and fpsr_out(24)='0', "CC(+1.0)");
+
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_RR, "000", "001", "000", ZERO);
+
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FNEG, "001", "010", "000", ZERO);
+		chk(fpsr_out(27)='1', "CC N after FNEG (-1.0)");
+
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FABS, "010", "011", "000", ZERO);
+		chk(fpsr_out(27)='0', "CC N cleared after FABS");
+
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "100", "000", ZERO);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FTST, "100", "000", "000", ZERO);
+		chk(fpsr_out(26)='1', "CC Z for zero");
+
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "101", "000", PINF);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FTST, "101", "000", "000", ZERO);
+		chk(fpsr_out(25)='1', "CC I for +Inf");
+
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "110", "000", QNAN);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FTST, "110", "000", "000", ZERO);
+		chk(fpsr_out(24)='1', "CC NAN for NaN");
+
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_ST, "000", "000", "000", ZERO);
+		chk(ext_out = P1, "FMOVE FP0->ext store");
+
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_TO_CR, "000", "000", CR_FPCR, x"00000000000000000030");
+		chk(fpcr_out = x"00000030", "FPCR write");
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FROM_CR, "000", "000", CR_FPCR, ZERO);
+		chk(ext_out(31 downto 0) = x"00000030", "FPCR read-back");
+
+		-- no earlier op raises unimpl, so the latch is still '0' here
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_ARITH, "000", "000", "000", ZERO);
+		wait until falling_edge(clk); wait until falling_edge(clk);
+		chk(unimpl_latch = '1', "FADD-class op raises unimpl (FPSP)");
+
+		if errors = 0 then
+			report "PASS: FPU foundation VHDL (regs, FMOVE/FABS/FNEG/FTST, classify, FPCR, unimpl)" severity note;
+		else
+			report "FAIL: FPU foundation VHDL" severity failure;
+		end if;
+		std.env.finish;
+	end process;
+end sim;
