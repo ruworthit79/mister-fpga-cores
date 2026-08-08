@@ -18,14 +18,30 @@ with the standard MiSTer toolchain and runs from the MiSTer menu.
 
 From the repo root:
 
+**Linux / macOS (or Git Bash / WSL on Windows):**
+
 ```bash
 ./build.sh              # full compile -> output_files/Quadra950.rbf
 ./build.sh clean        # remove build artifacts
 ```
 
-`build.sh` finds `quartus_sh` on `PATH` or via `$QUARTUS_ROOTDIR` and runs
-`quartus_sh --flow compile Quadra950`. Or open `Quadra950.qpf` in the Quartus GUI
-and **Processing → Start Compilation**.
+**Windows (Command Prompt / PowerShell):**
+
+```bat
+build.bat               :: full compile -> output_files\Quadra950.rbf
+build.bat clean         :: remove build artifacts
+```
+
+Run `build.bat` from the **"Quartus Prime <ver> Command Prompt"** shortcut (it
+puts `quartus_sh` on PATH), or from a normal prompt after
+`set QUARTUS_ROOTDIR=C:\intelFPGA\17.0\quartus`.
+
+**Any OS (GUI):** open `Quadra950.qpf` in Quartus and
+**Processing → Start Compilation**.
+
+Both scripts run the same underlying flow, `quartus_sh --flow compile Quadra950`.
+Quartus itself is cross-platform (Windows and Linux); the project files, relative
+paths, and the MiSTer `sys/` framework are identical on both.
 
 The project is wired for a hands-off build:
 
