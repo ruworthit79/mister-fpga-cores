@@ -110,11 +110,19 @@ module iobus
 	// Byte lane: the 68040 places a byte access to a 4-aligned register address
 	// on D31-D24 (big-endian). VIA registers are at $50F0_0000 + reg*0x200, all
 	// 4-aligned, so the CPU byte is din[31:24] (ROM-validated address map).
+	// VIA1 port A input value. On the Quadra 950 the VIA1 port-A pins that are
+	// configured as inputs are pulled high; an early POST subtest (ROM $46CCE:
+	// bclr #0,DDRA then btst #0,ORA; beq -> $46D5A bset #26,d7) sets PA0 to input
+	// and requires it to read 1 - if it reads 0 the ROM sets D7 bit26 and diverts
+	// into the serial test monitor (STM) instead of continuing to boot. Driving
+	// the input bits high (idle/pulled-up) satisfies this and matches hardware.
+	// (PA7 = SCC WrReq idle-high, PA6 = board/rev sense, etc.)
+	wire [7:0] via1_pa_in = 8'hFF;
 	via via1 (
 		.clk(clk), .reset(reset), .ce(via_ce),
 		.sel(via1_sel), .addr(via_reg), .din(din[31:24]), .dout(via1_dout), .rw(rw),
 		.irq(via1_irq),
-		.pa_in(8'h00), .pa_out(via1_pa), .pa_dir(via1_pa_dir),
+		.pa_in(via1_pa_in), .pa_out(via1_pa), .pa_dir(via1_pa_dir),
 		.pb_in(via1_pb_in), .pb_out(via1_pb), .pb_dir(via1_pb_dir),
 		.ca1(vbl), .cb1(1'b0)
 	);
