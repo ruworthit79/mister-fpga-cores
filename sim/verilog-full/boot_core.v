@@ -148,9 +148,11 @@ module boot_core(input clk, input reset);
 				dut.cpu_addr, dut.cpu_din, dut.cpu_dout);
 			niolog <= niolog + 1;
 		end
-		// PRE-MONITOR probe window: log all $5x I/O to find the probed device base
-		if (dut.cpu_ts && dut.cpu_ta && !entered_mon && nfetch > 2600000 && npre < 120 &&
-		    dut.cpu_addr[31:28] == 4'h5 && (dut.cpu_fc == 3'd1 || dut.cpu_fc == 3'd5)) begin
+		// PRE-MONITOR probe window: log ALL data-space I/O (any address) right
+		// before monitor entry, to find the probed device base (may be NuBus/slot
+		// or DAFB space, not $5x). Entry was at ~f#2649433.
+		if (dut.cpu_ts && dut.cpu_ta && !entered_mon && nfetch > 2646000 && npre < 250 &&
+		    (dut.cpu_fc == 3'd1 || dut.cpu_fc == 3'd5)) begin
 			$display("PRE %s addr=%08x din=%08x dout=%08x f#%0d", dut.cpu_rw?"RD":"WR",
 				dut.cpu_addr, dut.cpu_din, dut.cpu_dout, nfetch);
 			npre <= npre + 1;
