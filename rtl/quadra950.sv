@@ -179,6 +179,16 @@ module quadra950
 	wire [7:0] asc_dout;
 	wire       asc_ack, asc_irq;
 
+	// SONIC Ethernet at $50F0A000, SWIM floppy at $50F16000. Both are functional
+	// register models (see rtl/io/sonic.sv, rtl/io/swim.sv) with registered dout,
+	// so they carry their own ack like SCSI/ASC. SONIC registers are word-wide at
+	// dword spacing (addr[7:2]); SWIM registers are byte-wide at 512-byte spacing
+	// (addr[12:9], Mac IWM/SWIM convention).
+	wire sel_sonic = sel_io & (cpu_addr[23:12] == 12'hF0A);
+	wire sel_swim  = sel_io & (cpu_addr[23:12] == 12'hF16);
+	wire [15:0] sonic_dout; wire sonic_ack, sonic_irq;
+	wire [7:0]  swim_dout;  wire swim_ack,  swim_irq;
+
 	// ROM overlay: at reset the MCU maps ROM over low memory ($0). Per Apple's
 	// developer note, the overlay is cleared on the first access to ROM's real
 	// location ($40000000), after which RAM appears at $0.
@@ -241,7 +251,7 @@ module quadra950
 	(
 		.clk      (clk_sys),
 		.reset    (reset),
-		.sel      (sel_io & cpu_ts & ~sel_scsi0 & ~sel_scsi1 & ~sel_asc),
+		.sel      (sel_io & cpu_ts & ~sel_scsi0 & ~sel_scsi1 & ~sel_asc & ~sel_sonic & ~sel_swim),
 		.addr     (cpu_addr[23:0]),
 		.din      (cpu_dout),
 		.dout     (io_dout),
@@ -298,11 +308,14 @@ module quadra950
 	assign cpu_din = sel_scsi0 ? {scsi0_dout, 24'd0} :
 	                 sel_scsi1 ? {scsi1_dout, 24'd0} :
 	                 sel_asc   ? {asc_dout, 24'd0}   :
+	                 sel_sonic ? {sonic_dout, 16'd0} :
+	                 sel_swim  ? {swim_dout, 24'd0}  :
 	                 sel_io    ? io_dout   :
 	                 sel_dafb  ? dafb_dout :
 	                             ram_dout;
 
-	assign cpu_ta  = ram_ack | io_ack | dafb_ack | scsi0_ack | scsi1_ack | asc_ack;
+	assign cpu_ta  = ram_ack | io_ack | dafb_ack | scsi0_ack | scsi1_ack | asc_ack
+	               | sonic_ack | swim_ack;
 
 	//========================================================================
 	//  Audio (Apple Sound Chip)
@@ -363,5 +376,23 @@ module quadra950
 	);
 
 	assign disk_led = scsi0_act | scsi1_act;
+
+	//========================================================================
+	//  SONIC Ethernet ($50F0A000) and SWIM floppy ($50F16000)
+	//  Functional register models (no link / empty drive). Their IRQs stay
+	//  inactive in these models, so they are not folded into the IPL to avoid
+	//  perturbing the boot interrupt behaviour (documented).
+	//========================================================================
+	sonic sonic (
+		.clk(clk_sys), .reset(reset),
+		.sel(sel_sonic & cpu_ts), .addr(cpu_addr[7:2]), .din(cpu_dout[31:16]),
+		.dout(sonic_dout), .rw(cpu_rw), .ack(sonic_ack), .irq(sonic_irq)
+	);
+
+	swim swim (
+		.clk(clk_sys), .reset(reset),
+		.sel(sel_swim & cpu_ts), .addr(cpu_addr[12:9]), .din(cpu_dout[31:24]),
+		.dout(swim_dout), .rw(cpu_rw), .ack(swim_ack), .irq(swim_irq)
+	);
 
 endmodule

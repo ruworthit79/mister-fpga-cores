@@ -12,7 +12,11 @@
 //      logic and connect ADB/SWIM to the rest of the core, skipping the 6502.
 //      This is how several emulators handle the IIfx/Quadra IOPs.
 //
-//  STATUS: stub for option B (mailbox shell). No 6502 yet.
+//  STATUS: stub for option B (mailbox shell). No 6502 yet. The SWIM floppy
+//  controller (rtl/io/swim.sv) is currently reached in "bypass-IOP" mode: its
+//  registers are exposed to the CPU directly by the interconnect rather than
+//  through this mailbox, so an empty-drive floppy probe completes without the
+//  6502. Wiring the SWIM/ADB behind a real mailbox protocol here is future work.
 //============================================================================
 
 module iop

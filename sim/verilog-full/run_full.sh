@@ -25,5 +25,6 @@ verilator --binary --timing -j 0 --top-module boot_top \
 	boot_top.v cpu_synth.v \
 	$R/quadra950.sv $R/chipset/mcu.sv $R/chipset/iobus.sv $R/chipset/via.sv \
 	$R/chipset/caboose.sv $R/io/adb.sv $R/io/scsi_ncr53c96.sv \
+	$R/io/sonic.sv $R/io/swim.sv \
 	$R/video/dafb.sv $R/audio/asc.sv -o boot_full
 ./obj_dir/boot_full
