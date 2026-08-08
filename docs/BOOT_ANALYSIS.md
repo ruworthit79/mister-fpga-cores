@@ -160,14 +160,42 @@ respond identically. Result in the full-system harness:
 Fix committed in `iobus.sv` (`in_via = addr[19:14]==0`). All eight Icarus unit
 tests and the three GHDL CPU tests still pass.
 
-## Next gate (open work)
+## RESOLVED: cache-enable — 68040 CACR fix
 
-After identification the ROM enters a **device-configuration / timing phase**
-and currently loops there (heavy VIA1/VIA2 IER access at `$50F0_1C00`/
-`$50F0_3C00`, executing the `$46AA`-style register tests in the ROM image
-around `$4080_46xx`). This is the next probe-fidelity step to trace in this
-harness. Expect **further** gates after it: RAM sizing (MCU bank probing),
-VIA/RTC time + timer interrupts, ADB, then SCSI so a System file can be read.
+After identification the ROM ran the post-detection routine at `$4640`, which
+does `MOVEC` to **CACR setting bit 31 (68040 data-cache enable, DE)** and bit 15
+(IE), then reads CACR back to verify. The kernel's CACR was 68020-style (4 bits,
+read-masked), so the 040 enable bits were lost and boot stalled re-running the
+cache/probe code (the `$4080_46xx` `$46AA` loop, ~88 K I/O accesses).
 
-This remains a long ROM-fidelity tail, but the first and central gate — machine
-identification — is solved. It is independent of the Phase-5 68040 CPU work.
+Fix: make CACR 68040-accurate — 32-bit, storing/returning DE (bit31) + IE
+(bit15). No real cache exists, so the bits simply round-trip. Effect: boot
+advances past the cache loop, I/O-loop traffic drops **88832 → 3476**, last PC
+`$408046B2 → $40847516`.
+
+## Current boot frontier: ROM checksum (a normal step, not a gate)
+
+`$40847516` is the **ROM checksum loop** (`$47504` sets up a ROM base + length,
+then `$47516`: `move.w (a0)+,d0 ; add.l d0,d1 ; subq #2,d3 ; bne` sums every ROM
+word and compares to the stored checksum at `$47522`). This is legitimate
+early-boot work, not a stall — it just sums 512 K+ words, so it needs **~2M+
+CPU fetches**. The full-system Verilator harness (`--timing` + the ~36 K-line
+converted CPU netlist) runs at only ~300 K fetches per ~25 min wall-clock, so it
+cannot brute-force through the checksum in a practical sim run. On real 25–50 MHz
+hardware the checksum completes in a fraction of a second.
+
+So the boot sequence now verified in sim is:
+**reset → overlay clear → machine-ID (Quadra) → 040 cache enable → ROM
+checksum**, all with `berr=0` and zero unexpected exceptions — each step
+unblocked by a correct 68040 behaviour (I/O aliasing, CACR).
+
+## Next steps (open work)
+
+1. **Sim throughput** to see past the checksum: either a faster harness (drop
+   `--timing`; or a targeted checksum fast-forward in the testbench), or accept
+   the checksum as hardware-instant and focus on the post-checksum code
+   statically. Then trace the next real step (RAM sizing / MCU bank probe →
+   VIA/RTC time + timer interrupts → ADB → SCSI to read a System file).
+2. Each is a probe-fidelity step, but the two central gates — machine
+   identification and 040 cache enable — are solved, and boot is progressing
+   sequentially through genuine ROM boot stages.
