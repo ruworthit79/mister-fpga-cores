@@ -353,7 +353,7 @@ architecture logic of TG68KdotC_Kernel is
 
 	signal movec_data			: std_logic_vector(31 downto 0);
 	signal VBR					: std_logic_vector(31 downto 0);
-	signal CACR					: std_logic_vector(3 downto 0);
+	signal CACR					: std_logic_vector(31 downto 0);  -- 68040: DE=bit31, IE=bit15
 	signal DFC					: std_logic_vector(2 downto 0);
 	signal SFC					: std_logic_vector(2 downto 0);
 
@@ -4104,7 +4104,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		case brief(11 downto 0) is
 		  when X"000" => SFC <= reg_QA(2 downto 0); -- SFC -- 68010+
 		  when X"001" => DFC <= reg_QA(2 downto 0); -- DFC -- 68010+
-		  when X"002" => CACR <= reg_QA(3 downto 0); -- 68020+
+		  when X"002" => CACR <= reg_QA and x"80008000"; -- 68040 CACR: DE (bit31) + IE (bit15); no real cache, so enable bits just round-trip
 		  when X"003" => TC   <= reg_QA;             -- 68040 translation control
 		  when X"004" => ITT0 <= reg_QA;             -- 68040 instr transparent 0
 		  when X"005" => ITT1 <= reg_QA;             -- 68040 instr transparent 1
@@ -4127,7 +4127,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 	case brief(11 downto 0) is
 		when X"000" => movec_data <= "00000000000000000000000000000" & SFC;
 		when X"001" => movec_data <= "00000000000000000000000000000" & DFC;
-	  when X"002" => movec_data <= "0000000000000000000000000000" & (CACR AND "0011");
+	  when X"002" => movec_data <= CACR;   -- 68040 CACR read-back (DE/IE)
 	  when X"003" => movec_data <= TC;
 	  when X"004" => movec_data <= ITT0;
 	  when X"005" => movec_data <= ITT1;
@@ -4143,7 +4143,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 	end case;
   end process;
 
-  CACR_out <= CACR;
+  CACR_out <= CACR(3 downto 0);   -- 4-bit legacy port (unused); full CACR is internal
   VBR_out <= VBR;
 -----------------------------------------------------------------------------
 -- Conditions
