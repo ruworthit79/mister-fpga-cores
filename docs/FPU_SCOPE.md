@@ -53,11 +53,19 @@ Verified by `sim/ghdl/tb_fpu.vhd` (in the GHDL suite):
    FMOVE to/from FPCR/FPSR/FPIAR via an EA — needed before FP values can come
    from memory (i.e. before real FP software does anything useful).
 2. **Arithmetic datapath (5.3b) — the big lift.** FADD/FSUB/FMUL/FDIV/FSQRT/
-   FCMP/FINT with correct rounding (FPCR) and IEEE flags (FPSR). Options:
-   - adapt an open FPU (the OpenCores FPU / the reverse-engineered **MC68881
-     VHDL** core — the 040 FPU is 68881/882-ISA-compatible), or
-   - build a pipelined extended-precision datapath (kept off the CPU critical
-     path). Format conversions (single/double ↔ extended) come with it.
+   FCMP/FINT with correct rounding (FPCR) and IEEE flags (FPSR).
+   - **Landed:** extended-precision (80-bit) **FADD / FSUB / FMUL** in
+     `fpu_040.vhd` — exponent align, mantissa add/sub with normalization, 64×64
+     mantissa multiply, NaN/Inf/Zero special cases; round-toward-zero for now.
+     Unit-verified in `sim/ghdl/tb_fpu.vhd` (2+3=5, 5−2=3, 2×3=6) via the new
+     `FPU_FADD`/`FPU_FSUB`/`FPU_FMUL` command codes.
+   - **Remaining:** (a) wire those command codes into the kernel's F-line decode
+     (today the kernel still emits the generic `FPU_ARITH` → `unimpl` → FPSP, so
+     real programs run via software until this is connected); (b) FDIV/FSQRT/
+     FCMP/FINT; (c) the other rounding modes + IEEE exception flags; (d) format
+     conversions (single/double ↔ extended). Alternative to hand-building the
+     rest: adapt the reverse-engineered **MC68881 VHDL** core (68881/882-ISA-
+     compatible with the 040 FPU).
 3. **FPSP trap path (5.3c).** Ensure the transcendentals and packed-decimal
    types trap cleanly to the FPSP already present in the Mac ROM/OS. Mostly the
    `unimpl` path from step 1, plus the correct F-line exception frame.

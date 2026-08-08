@@ -36,6 +36,9 @@ architecture sim of tb_fpu is
 	constant FPU_TO_CR    : std_logic_vector(4 downto 0) := "00111";
 	constant FPU_FROM_CR  : std_logic_vector(4 downto 0) := "01000";
 	constant FPU_ARITH    : std_logic_vector(4 downto 0) := "01001";
+	constant FPU_FADD     : std_logic_vector(4 downto 0) := "01010";
+	constant FPU_FSUB     : std_logic_vector(4 downto 0) := "01011";
+	constant FPU_FMUL     : std_logic_vector(4 downto 0) := "01100";
 	constant CR_FPCR      : std_logic_vector(2 downto 0) := "001";
 
 	constant P1   : std_logic_vector(79 downto 0) := x"3FFF8000000000000000";
@@ -43,6 +46,11 @@ architecture sim of tb_fpu is
 	constant ZERO : std_logic_vector(79 downto 0) := x"00000000000000000000";
 	constant PINF : std_logic_vector(79 downto 0) := x"7FFF8000000000000000";
 	constant QNAN : std_logic_vector(79 downto 0) := x"7FFFC000000000000000";
+	-- extended-precision test values
+	constant TWO   : std_logic_vector(79 downto 0) := x"40008000000000000000";
+	constant THREE : std_logic_vector(79 downto 0) := x"4000C000000000000000";
+	constant FIVE  : std_logic_vector(79 downto 0) := x"4001A000000000000000";
+	constant SIX   : std_logic_vector(79 downto 0) := x"4001C000000000000000";
 
 	signal unimpl_latch : std_logic := '0';
 
@@ -119,13 +127,32 @@ begin
 		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FROM_CR, "000", "000", CR_FPCR, ZERO);
 		chk(ext_out(31 downto 0) = x"00000030", "FPCR read-back");
 
+		-- ---- hardware arithmetic datapath: FADD / FSUB / FMUL ----
+		-- FP0 = 2.0, FP1 = 3.0
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "000", "000", TWO);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "001", "000", THREE);
+		-- FADD FP0,FP1 -> FP1 = 3.0 + 2.0 = 5.0
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FADD, "000", "001", "000", ZERO);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_ST, "001", "000", "000", ZERO);
+		chk(ext_out = FIVE, "FADD 2.0+3.0=5.0");
+		-- FSUB FP0,FP1 -> FP1 = 5.0 - 2.0 = 3.0
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FSUB, "000", "001", "000", ZERO);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_ST, "001", "000", "000", ZERO);
+		chk(ext_out = THREE, "FSUB 5.0-2.0=3.0");
+		-- FP2 = 2.0, FP3 = 3.0; FMUL FP2,FP3 -> FP3 = 3.0 * 2.0 = 6.0
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "010", "000", TWO);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "011", "000", THREE);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMUL, "010", "011", "000", ZERO);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_ST, "011", "000", "000", ZERO);
+		chk(ext_out = SIX, "FMUL 2.0*3.0=6.0");
+
 		-- no earlier op raises unimpl, so the latch is still '0' here
 		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_ARITH, "000", "000", "000", ZERO);
 		wait until falling_edge(clk); wait until falling_edge(clk);
 		chk(unimpl_latch = '1', "FADD-class op raises unimpl (FPSP)");
 
 		if errors = 0 then
-			report "PASS: FPU foundation VHDL (regs, FMOVE/FABS/FNEG/FTST, classify, FPCR, unimpl)" severity note;
+			report "PASS: FPU VHDL (regs, FMOVE/FABS/FNEG/FTST, classify, FPCR, FADD/FSUB/FMUL, unimpl)" severity note;
 		else
 			report "FAIL: FPU foundation VHDL" severity failure;
 		end if;
