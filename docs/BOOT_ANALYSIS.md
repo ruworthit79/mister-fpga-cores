@@ -216,10 +216,46 @@ two-step access, returning RR0 = Tx Buffer Empty and RR1 = All Sent (no real
 serial link), on the correct big-endian byte lane. Expected to release the SCC
 init loop so boot continues to the next stage.
 
+## RESOLVED: SCC init — `ack` was double-toggling the Z8530 register pointer
+
+The first SCC status model still failed: reads returned RR0 (`0x04`) when the
+ROM expected the pointed register. Root cause was **not** the SCC model but the
+iobus **acknowledge**: the read mux used a self-clearing `ack` (`ack<=0` default,
+set on `sel & ~ack`), so while the CPU held `sel` across a multi-cycle access
+`ack` oscillated `0→1→0→1`. The SCC pointer update is gated on
+`(scc_ctrl & sel & ~ack)`, so it fired on every ack-low cycle and toggled the
+Z8530 pointer twice per access. Fix: make `ack` **level-held** — assert on the
+first cycle, hold while `sel`, drop only when `sel` deasserts — so the pointer
+update and the latched `dout` each happen exactly once. (Isolated Icarus SCC
+test now reads RR1 = All Sent; VIA machine-ID reads unaffected.)
+
+### What the SCC loop actually is (disassembly, not a guess)
+
+Disassembling `$4A9FE`/`$4AF9E` shows the loop is the ROM's **serial-receive
+poll**, not an "All Sent" wait: `$4AF9E` reads RR0 bit0 (Rx Char Available); with
+nothing on the wire it returns `d0=0x8000` ("no char") and `tst.w d0; bmi`
+branches away cleanly. So RR0 bit0 = 0 is the *correct* response and no longer
+blocks. The surrounding loop (`$4A840…$4AFCC`) is a **serial-startup timeout
+wait**: it arms VIA1 **Timer 2** (`$50F0_1000/1200` = T2C-L/H = `0xFFFF`) and
+polls VIA1 IFR bit5 (`$50F0_1A00`), counting **12 timeouts** before giving up on
+serial and proceeding to normal boot.
+
+## VERIFIED: boot sweeps the entire ROM and VIA Timer 2 fires
+
+With the `ack` fix, the fast harness shows boot advancing far past the old gate:
+
+* PC climbs **linearly through the whole ROM upper half**, `NEWPC` stepping
+  `$4088_A000 → $408F_F000` (≈ the top of the 1 MB ROM) — a large decompress /
+  init sweep running to completion, `berr=0`, no bus stalls.
+* **VIA1 Timer 2 works**: repeated `T2 EXPIRED` events with `ifr=0x22`
+  (bit5 = T2, bit1 = CA1/VBL from DAFB), `ier=0x00` (polled, matches the ROM).
+  Timer 2 expires every ~187 k fetches, so the 12-timeout serial wait clears in
+  ~2.2 M fetches.
+
 ## Next steps (open work)
 
-Continue the boot chain past the SCC: expect RAM sizing (MCU bank probe),
-VIA/RTC time + timer interrupts, ADB, then SCSI to read a System file. The two
-central gates (machine identification, 040 cache enable) plus the checksum and
-SCC init are solved/addressed; boot is progressing sequentially through genuine
-ROM boot stages in the fast harness.
+Continue the boot chain past the serial-startup wait: expect RAM sizing (MCU
+bank probe), VIA/RTC time + timer interrupts, ADB, then SCSI to read a System
+file. The central gates so far — machine identification, 040 cache enable, ROM
+checksum, SCC/serial init — are all solved; boot is progressing sequentially
+through genuine ROM boot stages in the fast harness.

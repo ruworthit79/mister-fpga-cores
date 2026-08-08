@@ -65,8 +65,14 @@ module boot_core(input clk, input reset);
 
 	// ---- progress trace ----
 	integer nfetch = 0; reg [31:0] last_pc = 0; reg [31:0] max_pc = 0;
-	reg ts_d = 0; integer stall = 0; integer nberr = 0;
+	reg ts_d = 0; integer stall = 0; integer nberr = 0; integer niolog = 0;
 	reg drew = 0;
+	// plateau detector: how many fetches since max_pc last advanced
+	integer since_adv = 0; reg plateau_dumped = 0;
+	// track the loop window (min/max PC seen since the last plateau reset)
+	reg [31:0] win_lo = 32'hFFFF_FFFF, win_hi = 0;
+	// VIA1 timer2 expiry counter (did the timer ever fire?)
+	integer t2_fires = 0; reg t2act_d = 0;
 	always @(posedge clk) begin
 		ts_d <= dut.cpu_ts;
 		if (dut.cpu_ts && !dut.cpu_ta && !dut.cpu_berr) begin
@@ -76,6 +82,16 @@ module boot_core(input clk, input reset);
 				$finish;
 			end
 		end else stall = 0;
+
+		// count VIA1 Timer2 expiries (t2_active 1->0 with ifr[5] set)
+		t2act_d <= dut.iobus.via1.t2_active;
+		if (t2act_d && !dut.iobus.via1.t2_active) begin
+			t2_fires = t2_fires + 1;
+			if (t2_fires <= 20)
+				$display("VIA1 T2 EXPIRED #%0d (ifr=%02x ier=%02x) fetch#%0d",
+					t2_fires, dut.iobus.via1.ifr, dut.iobus.via1.ier, nfetch);
+		end
+
 		if (dut.cpu_ts && !ts_d) begin
 			if (dut.cpu_fc == 3'd6 || dut.cpu_fc == 3'd2) begin
 				nfetch = nfetch + 1;
@@ -87,10 +103,36 @@ module boot_core(input clk, input reset);
 				if (dut.cpu_addr[31:12] != max_pc[31:12])
 					$display("NEWPC %08x (fetch#%0d)", dut.cpu_addr, nfetch);
 				max_pc <= dut.cpu_addr;
+				since_adv = 0; win_lo <= 32'hFFFF_FFFF; win_hi <= 0;
+			end else if (dut.cpu_fc == 3'd6 || dut.cpu_fc == 3'd2) begin
+				since_adv = since_adv + 1;
+			end
+			// track the confinement window of ROM-space fetches
+			if (dut.cpu_addr < 32'h5000_0000) begin
+				if (dut.cpu_addr < win_lo) win_lo <= dut.cpu_addr;
+				if (dut.cpu_addr > win_hi) win_hi <= dut.cpu_addr;
+			end
+			// plateau: max_pc hasn't advanced in a long time -> we're stuck in a loop
+			if (since_adv == 3000000 && !plateau_dumped) begin
+				plateau_dumped <= 1'b1;
+				$display(">>> PLATEAU: no new max PC for 3M fetches; loop window [%08x..%08x] max_pc=%08x",
+					win_lo, win_hi, max_pc);
+				$display(">>> VIA1: ifr=%02x ier=%02x t2c=%04x t2_active=%b t1c=%04x t1_active=%b acr=%02x  T2fires=%0d",
+					dut.iobus.via1.ifr, dut.iobus.via1.ier, dut.iobus.via1.t2c,
+					dut.iobus.via1.t2_active, dut.iobus.via1.t1c, dut.iobus.via1.t1_active,
+					dut.iobus.via1.acr, t2_fires);
+				niolog = 0;   // re-enable the I/O log to capture what the loop touches now
 			end
 			if (dut.cpu_berr) begin nberr = nberr + 1;
 				if (nberr < 40) $display("BERR addr=%08x", dut.cpu_addr); end
 			last_pc <= dut.cpu_addr;
+		end
+		// log I/O accesses AT COMPLETION (ta) to see the value the CPU latches
+		if (dut.cpu_ts && dut.cpu_ta && plateau_dumped && niolog < 40 &&
+		    dut.cpu_addr[31:28] == 4'h5 && (dut.cpu_fc == 3'd1 || dut.cpu_fc == 3'd5)) begin
+			$display("IO %s addr=%08x din=%08x dout=%08x", dut.cpu_rw?"RD":"WR",
+				dut.cpu_addr, dut.cpu_din, dut.cpu_dout);
+			niolog <= niolog + 1;
 		end
 		if (ce_pix && !HBlank && !VBlank && (r|g|b) != 0 && !drew) begin
 			drew <= 1'b1; $display(">>> DAFB drew a non-black pixel (r=%02x g=%02x b=%02x)!", r, g, b);
