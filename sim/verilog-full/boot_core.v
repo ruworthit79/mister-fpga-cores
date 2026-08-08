@@ -108,6 +108,10 @@ module boot_core(input clk, input reset);
 					entered_mon <= 1'b1;
 					$display(">>> ENTER SERIAL MONITOR at PC=%08x fetch#%0d; last 256 fetches:",
 						dut.cpu_addr, nfetch);
+					$display(">>> VIA2: ddra=%02x ora=%02x ddrb=%02x orb=%02x pb_in=%02x pb_read=%02x pa_read=%02x",
+						dut.iobus.via2.ddra, dut.iobus.via2.ora, dut.iobus.via2.ddrb,
+						dut.iobus.via2.orb, dut.iobus.via2_pb_in, dut.iobus.via2.pb_read,
+						dut.iobus.via2.pa_read);
 					for (k = 0; k < 256; k = k + 1)
 						$display("   [%0d] %08x", k, ring[(rptr + k) & 255]);
 				end
