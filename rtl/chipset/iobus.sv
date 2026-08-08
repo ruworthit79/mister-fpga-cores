@@ -119,12 +119,25 @@ module iobus
 		.ca1(vbl), .cb1(1'b0)
 	);
 
+	// VIA2 port inputs (idle/ready levels). On the Quadra, VIA2 port A carries the
+	// active-low NuBus slot interrupt lines and the shared data bus used to talk to
+	// the ADB/RTC microcontroller; when nothing is asserting, those lines idle HIGH
+	// (0xFF). VIA2 port B bit1 is that microcontroller's ACK/ready handshake line,
+	// high when it is ready. The ROM's early VIA2 probe (ROM $47240) first waits for
+	// PB1=1 and PA=0xFF before writing its config commands, and its command
+	// handshake ($4723A) toggles PB2 (strobe) and polls PB1 (ack). With no real
+	// microcontroller attached we present the idle/ready levels so the probe and
+	// its command handshakes complete, instead of timing out and dropping the boot
+	// into the ROM's serial diagnostic monitor. (0x00 here previously read as "all
+	// slot interrupts asserted / bus busy", which is the wrong idle state.)
+	wire [7:0] via2_pa_in = 8'hFF;
+	wire [7:0] via2_pb_in = 8'h02;   // bit1 = microcontroller ACK/ready
 	via via2 (
 		.clk(clk), .reset(reset), .ce(via_ce),
 		.sel(via2_sel), .addr(via_reg), .din(din[31:24]), .dout(via2_dout), .rw(rw),
 		.irq(via2_irq),
-		.pa_in(8'h00), .pa_out(via2_pa), .pa_dir(via2_pa_dir),
-		.pb_in(8'h00), .pb_out(via2_pb), .pb_dir(via2_pb_dir),
+		.pa_in(via2_pa_in), .pa_out(via2_pa), .pa_dir(via2_pa_dir),
+		.pb_in(via2_pb_in), .pb_out(via2_pb), .pb_dir(via2_pb_dir),
 		.ca1(1'b0), .cb1(1'b0)
 	);
 
