@@ -169,14 +169,19 @@ module iobus
 
 	// ---- read mux + acknowledge ----
 	// Read data returns on the high byte to match the CPU's byte-access lane.
+	// Latch dout ONCE on the first cycle of the access (sel & ~ack) and hold it.
+	// The SCC's register pointer clears on read, so recomputing every cycle would
+	// flip scc_rr (RR1->RR0) mid-access and the CPU would latch the wrong value.
 	always @(posedge clk) begin
 		ack <= 1'b0;
-		if (via1_sel)      dout <= {via1_dout, 24'd0};
-		else if (via2_sel) dout <= {via2_dout, 24'd0};
-		else if (scc_sel)  dout <= scc_ctrl ? {scc_rr, scc_rr, scc_rr, scc_rr}
-		                                    : 32'd0;   // status on all lanes; data (Rx)=0
-		else               dout <= 32'd0;          // unmapped I/O reads as 0
-		if (sel && !ack) ack <= 1'b1;
+		if (sel && !ack) begin
+			ack <= 1'b1;
+			if (via1_sel)      dout <= {via1_dout, 24'd0};
+			else if (via2_sel) dout <= {via2_dout, 24'd0};
+			else if (scc_sel)  dout <= scc_ctrl ? {scc_rr, scc_rr, scc_rr, scc_rr}
+			                                    : 32'd0;   // status all lanes; Rx data=0
+			else               dout <= 32'd0;          // unmapped I/O reads as 0
+		end
 	end
 
 endmodule
