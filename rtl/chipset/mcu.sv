@@ -26,7 +26,7 @@ module mcu
 (
 	input             clk,
 	input             reset,
-	input             ram_128mb,
+	input      [1:0]  ram_cfg,        // installed RAM: 0=64MB, 1=128MB, 2=256MB
 
 	// CPU side (TS/TA: cpu_req pulses a transfer, cpu_ack completes it)
 	input      [31:0] cpu_addr,
@@ -59,7 +59,15 @@ module mcu
 
 	// Address of the containing 64-bit (8-byte) DDR word.
 	wire        is_rom  = rom_sel;                 // ROM access (decoded upstream)
-	wire [28:0] ram_a   = {cpu_addr[28:3], 3'b000};
+	// RAM address, masked to the installed size so accesses above it ALIAS (wrap) -
+	// this is how the sized DRAM presents to the ROM's memory-sizing probe, and it
+	// keeps RAM below ROM_BASE (256MB) in DDR3. 64MB=bits[25:0], 128MB=[26:0],
+	// 256MB=[27:0].
+	wire [28:0] ram_full = {cpu_addr[28:3], 3'b000};
+	wire [28:0] ram_mask = (ram_cfg >= 2'd2) ? 29'h0FFF_FFF8 :   // 256 MB
+	                       (ram_cfg == 2'd1) ? 29'h07FF_FFF8 :   // 128 MB
+	                                           29'h03FF_FFF8;    //  64 MB
+	wire [28:0] ram_a   = ram_full & ram_mask;
 	wire [28:0] rom_a   = ROM_BASE + {8'd0, cpu_addr[20:3], 3'b000};
 	wire [28:0] cpu_ddr = is_rom ? rom_a : ram_a;
 	wire        hi      = ~cpu_addr[2];            // A2=0 -> high 32 bits

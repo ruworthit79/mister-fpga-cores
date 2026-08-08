@@ -68,7 +68,7 @@ localparam CONF_STR = {
 	"O[9:8],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[11:10],Screen size,640x480,832x624,1024x768,1152x870;",
 	"-;",
-	"O[13],RAM,64MB,128MB;",
+	"O[13:12],RAM,64MB,128MB,256MB;",
 	"-;",
 	"T[0],Reset;",
 	"R[0],Reset and close OSD;",
@@ -201,7 +201,7 @@ quadra950 quadra950
 	.clk_sys      (clk_sys),
 	.reset        (reset),
 
-	.ram_128mb    (status[13]),
+	.ram_cfg      (status[13:12]),
 	.vmode        (status[11:10]),
 
 	// ROM / file download

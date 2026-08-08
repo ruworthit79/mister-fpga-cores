@@ -16,7 +16,7 @@ module quadra950
 	input             clk_sys,
 	input             reset,
 
-	input             ram_128mb,     // 0 = 64MB, 1 = 128MB of emulated RAM
+	input      [1:0]  ram_cfg,       // installed RAM: 0 = 64MB, 1 = 128MB, 2 = 256MB
 	input      [1:0]  vmode,         // video mode (OSD "Screen size")
 
 	// ROM / file download (index 0 = Quadra ROM, 1 MB)
@@ -201,7 +201,7 @@ module quadra950
 	(
 		.clk        (clk_sys),
 		.reset      (reset),
-		.ram_128mb  (ram_128mb),
+		.ram_cfg    (ram_cfg),
 
 		.cpu_addr   (cpu_addr),
 		.cpu_din    (cpu_dout),

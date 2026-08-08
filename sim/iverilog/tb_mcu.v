@@ -21,6 +21,7 @@ module tb_mcu;
 	reg  [7:0]  ioctl_index = 0;
 	reg  [26:0] ioctl_addr = 0;
 	reg  [15:0] ioctl_dout = 0;
+	reg  [1:0]  ram_cfg = 2'd0;   // 0=64MB 1=128MB 2=256MB
 
 	wire [7:0]  BURSTCNT;
 	wire [28:0] ADDR;
@@ -32,7 +33,7 @@ module tb_mcu;
 
 	// Small ROM base so DDR addresses stay tiny for the model.
 	mcu #(.ROM_BASE(29'h0001_0000)) dut (
-		.clk(clk), .reset(reset), .ram_128mb(1'b0),
+		.clk(clk), .reset(reset), .ram_cfg(ram_cfg),
 		.cpu_addr(cpu_addr), .cpu_din(cpu_din), .cpu_dout(cpu_dout),
 		.cpu_be(cpu_be), .cpu_rw(cpu_rw), .cpu_req(cpu_req),
 		.rom_sel(cpu_rom_sel), .cpu_ack(cpu_ack),
@@ -121,6 +122,21 @@ module tb_mcu;
 		cpu_xfer(32'h0000_0040, 1'b0, 4'b0011, 32'h1122_3344, rdata);
 		cpu_xfer(32'h0000_0040, 1'b1, 4'b1111, 0, rdata);
 		check("ram be", rdata, 32'hAABB_3344);
+
+		// ---- 4. RAM-size masking (installed-size aliasing) ----
+		// ram_a = {cpu_addr[28:3],0} masked to the installed size; accesses above it
+		// wrap. dut.ram_a is combinational, so drive addr/cfg and sample directly.
+		cpu_req = 1'b0;
+		ram_cfg = 2'd0; cpu_addr = 32'h0400_0040; #1;   // 64MB+0x40 in 64MB -> alias 0x40
+		check("mask 64MB alias",  {3'b0, dut.ram_a}, 32'h0000_0040);
+		ram_cfg = 2'd1; cpu_addr = 32'h0400_0040; #1;   // 64MB in 128MB -> valid, no alias
+		check("mask 128MB valid", {3'b0, dut.ram_a}, 32'h0400_0040);
+		ram_cfg = 2'd2; cpu_addr = 32'h0C00_0040; #1;   // 192MB in 256MB -> valid
+		check("mask 256MB valid", {3'b0, dut.ram_a}, 32'h0C00_0040);
+		ram_cfg = 2'd0; cpu_addr = 32'h0800_0040; #1;   // 128MB in 64MB -> alias 0x40
+		check("mask 64<-128",     {3'b0, dut.ram_a}, 32'h0000_0040);
+		ram_cfg = 2'd2; cpu_addr = 32'h1000_0040; #1;   // 256MB in 256MB -> wrap to 0x40
+		check("mask 256 wrap",    {3'b0, dut.ram_a}, 32'h0000_0040);
 
 		if (errors == 0) $display("PASS: MCU/DDR3 all checks passed");
 		else             $display("FAILED: %0d error(s)", errors);

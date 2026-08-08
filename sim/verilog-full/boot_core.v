@@ -22,7 +22,7 @@ module boot_core(input clk, input reset);
 	wire [7:0]  pram_bk_dout;
 
 	quadra950 dut (
-		.clk_sys(clk), .reset(reset), .ram_128mb(1'b0), .vmode(2'd0),
+		.clk_sys(clk), .reset(reset), .ram_cfg(2'd0), .vmode(2'd0),
 		.ioctl_download(1'b0), .ioctl_index(8'd0), .ioctl_wr(1'b0),
 		.ioctl_addr(27'd0), .ioctl_dout(16'd0),
 		.img_mounted(2'd0), .img_readonly(1'b0), .img_size(64'd0),

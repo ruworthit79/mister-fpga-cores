@@ -71,7 +71,7 @@ The project is wired for a hands-off build:
      download and boots fresh from the new ROM when it completes.
    - **Mount SCSI0 / SCSI1** → attach disk images (once you have a bootable
      volume).
-   - **RAM** → 64 MB or 128 MB; **Screen size** → 640×480 … 1152×870;
+   - **RAM** → 64 / 128 / 256 MB; **Screen size** → 640×480 … 1152×870;
      **Aspect ratio** → Original / Full.
 3. Keyboard and mouse map to ADB via the standard MiSTer PS/2 translation.
 4. PRAM (NVRAM) is saved/restored through the MiSTer save-file mechanism
