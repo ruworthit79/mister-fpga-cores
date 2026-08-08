@@ -312,13 +312,34 @@ advances ~2.6M fetches into new territory — the entire upper-ROM POST sweep
 `d7`=`0x00000001` (bit26 clear) and `d0` bit12=1, so **both** STM conditions are
 false — the code passes straight through the decision and continues booting.
 
+### Next frontier — ASC init delay loops (sim-performance, not a bug)
+
+After the STM divert clears, boot runs a long initialization phase centred on the
+**ASC** (Apple Sound Chip, `$50F14000`). Register capture at the loop entry
+(`$4070F8`) shows it is table-driven: `movem.w (a4)+,d0/d1/d2` loads the counts
+from a **ROM data table** (e.g. `d2 = $1388 = 5000` outer iterations), and the
+body is `move.b (a0)+,d4 … tst.b (a5); dbf d4` — an inner **delay** loop with
+`d4`/`d5` ≈ 65k counts, sweeping `A0` across the ASC registers. These are genuine
+hardware settling delays: trivial at 33 MHz (µs–ms) but many millions of cycles
+in a cycle-accurate Verilator run, so the sim cannot practically reach the end of
+the phase in real time. It is **bounded** (pointers advance, counters count down),
+not a hang.
+
+To verify downstream boot in sim, `boot_core.v` has a **sim-only delay
+accelerator**: when the CPU spins inside a ≤8-byte PC window it zeroes the inner
+delay counters (`d4`/`d5` low words) so the `dbf` delay exits immediately, leaving
+the functional counters (`d2` outer, `d3` copy) intact. This touches only the
+sim's copy of the kernel `regfile`, never the core RTL, and is purely a
+simulation-speed aid.
+
 ### Status of the boot chain
 
 Solved gates: machine identification, 040 cache enable, ROM checksum, SCC/serial
 init, VIA1 Timer 2, VIA shift register, VIA2 microcontroller handshake, **VIA1
 port-A input (STM divert)**. All peripheral unit tests (8 Icarus) and CPU/FPU
-tests (6 GHDL) pass. Boot now clears the POST/STM decision and proceeds into RAM
-setup; the next frontier is downstream of the `$407116` RAM loop. The CPU's 68040
-instruction support (MOVEC 040 control regs, CINV/CPUSH/PFLUSH/PTEST no-ops,
-MOVE16, FPU structural ops) proved sufficient for POST — the STM divert was a
-peripheral input bug, not a CPU-conformance wall.
+tests (6 GHDL) pass. Boot now clears the POST/STM decision and proceeds into the
+ASC init / delay phase; the next real gate is downstream of those delays (video
+init, then the boot-device search). The CPU's 68040 instruction support (MOVEC 040
+control regs, CINV/CPUSH/PFLUSH/PTEST no-ops, MOVE16, FPU structural ops) proved
+sufficient for POST — the STM divert was a peripheral input bug, not a
+CPU-conformance wall.

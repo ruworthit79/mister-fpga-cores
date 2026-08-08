@@ -77,6 +77,7 @@ module boot_core(input clk, input reset);
 	reg [31:0] ring [0:255]; integer rptr = 0; reg entered_mon = 0; integer k;
 	integer stm_dumps = 0;
 	integer n46d = 0;
+	reg [31:0] spin_c = 0; integer acc_cnt = 0; integer nskip = 0;
 	integer nfb = 0;
 	reg jump_dumped = 0;
 	integer npre = 0;
@@ -104,6 +105,23 @@ module boot_core(input clk, input reset);
 				nfetch = nfetch + 1;
 				if (nfetch % 500000 == 0)
 					$display("fetch#%0d PC=%08x", nfetch, dut.cpu_addr);
+				// -------- SIM-ONLY delay accelerator --------
+				// Boot runs long table-driven ASC/POST delay loops (`tst.b (a5);
+				// dbf d4`), fine at 33 MHz but far too slow for cycle-accurate sim.
+				// When the CPU spins inside a <=8-byte PC window, zero the inner
+				// delay counters (d4/d5 low words) so the delay exits fast. Leaves
+				// d2 (outer functional count) and d3 (copy count) untouched, so all
+				// functional iterations still run - only the wait is skipped. This
+				// touches only the sim's copy of the kernel regfile, never the core.
+				if (dut.cpu_addr >= spin_c - 32'd8 && dut.cpu_addr <= spin_c + 32'd8)
+					acc_cnt = acc_cnt + 1;
+				else begin spin_c = dut.cpu_addr; acc_cnt = 0; end
+				if (acc_cnt == 200) begin
+					dut.cpu.cpu.regfile[4][15:0] = 16'h0001;
+					dut.cpu.cpu.regfile[5][15:0] = 16'h0001;
+					acc_cnt = 0; nskip = nskip + 1;
+					if (nskip <= 30) $display("DELAYSKIP #%0d at PC~%08x f#%0d", nskip, spin_c, nfetch);
+				end
 				// push fetch PCs into the ring but EXCLUDE the STM region (0x4a700-0x4afff),
 				// the VIA2-probe (0x47180-0x47280) and the high-ROM diagnostic sweep
 				// (0x40880000-0x408fffff), so the 256-entry history holds the normal-boot
@@ -117,17 +135,16 @@ module boot_core(input clk, input reset);
 				// $46D10 / $46D2E (the `move.b (0x40,a3),d3` test entries) and $46D5A
 				// (the `bset #26,d7` fail site). Fetch-time regfile reads are reliable
 				// (they gave the correct D7). This reveals the a3/a0 pointer used.
-				if (n46d < 40 && (dut.cpu_addr == 32'h4084_6d10 ||
-				    dut.cpu_addr == 32'h4084_6d2e || dut.cpu_addr == 32'h4084_6d5a)) begin
+				// Dump the RAM-phase loop registers at $408070F8 (loop entry) to learn
+				// the memory range/counts it sweeps (a1=dest, a4=src, d3/d5=counts).
+				if (n46d < 30 && dut.cpu_addr == 32'h4080_70f8) begin
 					n46d = n46d + 1;
-					$display(">>> BIT26 PC=%08x f#%0d D7=%08x A2=%08x A3=%08x  [A2+1E00]=%08x",
-						dut.cpu_addr, nfetch, dut.cpu.cpu.regfile[7],
-						dut.cpu.cpu.regfile[10], dut.cpu.cpu.regfile[11],
-						dut.cpu.cpu.regfile[10] + 32'h1e00);
-					// at the bset #26 fail site, dump the 40 predecessor PCs (how we got here)
-					if (dut.cpu_addr == 32'h4084_6d5a)
-						for (k = 0; k < 40; k = k + 1)
-							$display("   pre[%0d] %08x", k, ring[(rptr + 216 + k) & 255]);
+					$display(">>> RAMLOOP f#%0d D2=%08x D3=%08x D4=%08x D5=%08x  A0=%08x A1=%08x A2=%08x A4=%08x A5=%08x",
+						nfetch, dut.cpu.cpu.regfile[2], dut.cpu.cpu.regfile[3],
+						dut.cpu.cpu.regfile[4], dut.cpu.cpu.regfile[5],
+						dut.cpu.cpu.regfile[8], dut.cpu.cpu.regfile[9],
+						dut.cpu.cpu.regfile[10], dut.cpu.cpu.regfile[12],
+						dut.cpu.cpu.regfile[13]);
 				end
 				// One-shot: the FIRST time the CPU FETCHES from I/O space 0x50fb40xx
 				// (executing from I/O = wild jump / bad vector), dump the recent PC
