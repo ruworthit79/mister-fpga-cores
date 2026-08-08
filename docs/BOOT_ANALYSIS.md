@@ -325,12 +325,24 @@ in a cycle-accurate Verilator run, so the sim cannot practically reach the end o
 the phase in real time. It is **bounded** (pointers advance, counters count down),
 not a hang.
 
-To verify downstream boot in sim, `boot_core.v` has a **sim-only delay
-accelerator**: when the CPU spins inside a ≤8-byte PC window it zeroes the inner
-delay counters (`d4`/`d5` low words) so the `dbf` delay exits immediately, leaving
-the functional counters (`d2` outer, `d3` copy) intact. This touches only the
-sim's copy of the kernel `regfile`, never the core RTL, and is purely a
-simulation-speed aid.
+**Why the delays can't be simulated through, and can't be safely skipped.** Two
+approaches were tried and characterised:
+
+* *Broad accelerator* (zero `d4`/`d5` whenever the CPU spins): drove boot **back
+  into STM**. The "delay" register `d4` is not pure — it is written to the ASC
+  registers (`move.b d4,(…,a2)` at `$7106-14`) and *then* reused as the `dbf`
+  count, so zeroing it broadly corrupts the ASC data the ROM later checks.
+* *Surgical accelerator* (zero only `d4`, only at the `dbf` PC `$407118`, after the
+  writes — provably same end state): safe, but **insufficient** — early boot has
+  **~30+ independent delay loops** at different PCs using different registers, so
+  one-loop targeting doesn't move the needle.
+
+Conclusion: these are pervasive, functionally-entangled, table-driven hardware
+settling delays. They are correct behaviour and run in real time on the FPGA
+(µs–ms), but a cycle-accurate Verilator run cannot practically traverse them
+(billions of cycles). `boot_core.v` keeps the surgical accelerator as an **opt-in**
+aid (`ACCEL_DELAYS`, default 0); it is not a general solution. **Verifying boot
+past this phase belongs on real hardware**, where the delays cost microseconds.
 
 ### Status of the boot chain
 

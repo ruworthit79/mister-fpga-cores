@@ -78,6 +78,8 @@ module boot_core(input clk, input reset);
 	integer stm_dumps = 0;
 	integer n46d = 0;
 	reg [31:0] spin_c = 0; integer acc_cnt = 0; integer nskip = 0;
+	localparam ACCEL_DELAYS = 1'b0;   // sim-only ASC delay skip (surgical, d4@$407118); OPT-IN,
+	                                  // safe but insufficient: boot has ~30+ such delay loops.
 	integer nfb = 0;
 	reg jump_dumped = 0;
 	integer npre = 0;
@@ -105,22 +107,19 @@ module boot_core(input clk, input reset);
 				nfetch = nfetch + 1;
 				if (nfetch % 500000 == 0)
 					$display("fetch#%0d PC=%08x", nfetch, dut.cpu_addr);
-				// -------- SIM-ONLY delay accelerator --------
-				// Boot runs long table-driven ASC/POST delay loops (`tst.b (a5);
-				// dbf d4`), fine at 33 MHz but far too slow for cycle-accurate sim.
-				// When the CPU spins inside a <=8-byte PC window, zero the inner
-				// delay counters (d4/d5 low words) so the delay exits fast. Leaves
-				// d2 (outer functional count) and d3 (copy count) untouched, so all
-				// functional iterations still run - only the wait is skipped. This
-				// touches only the sim's copy of the kernel regfile, never the core.
-				if (dut.cpu_addr >= spin_c - 32'd8 && dut.cpu_addr <= spin_c + 32'd8)
-					acc_cnt = acc_cnt + 1;
-				else begin spin_c = dut.cpu_addr; acc_cnt = 0; end
-				if (acc_cnt == 200) begin
+				// -------- SIM-ONLY surgical delay accelerator --------
+				// The ASC inner delay is `tst.b (a5); dbf d4` at $407116/$407118.
+				// d4 is WRITTEN to memory (move.b d4,(..,a2)) at $7106-14 BEFORE the
+				// dbf, then reused as the delay count - so zeroing d4 only AT the dbf
+				// ($407118), after those writes, is provably safe: normal dbf exit
+				// leaves d4 low word = 0xffff, and forcing it to 1 reaches the same
+				// end state in 2 iterations instead of ~65k. Only d4, only at this PC;
+				// nothing else is touched. Sim regfile copy only; core RTL untouched.
+				if (ACCEL_DELAYS && dut.cpu_addr == 32'h4080_7118 &&
+				    dut.cpu.cpu.regfile[4][15:0] > 16'h0004) begin
 					dut.cpu.cpu.regfile[4][15:0] = 16'h0001;
-					dut.cpu.cpu.regfile[5][15:0] = 16'h0001;
-					acc_cnt = 0; nskip = nskip + 1;
-					if (nskip <= 30) $display("DELAYSKIP #%0d at PC~%08x f#%0d", nskip, spin_c, nfetch);
+					nskip = nskip + 1;
+					if (nskip <= 8) $display("DELAYSKIP #%0d d4-delay at $407118 f#%0d", nskip, nfetch);
 				end
 				// push fetch PCs into the ring but EXCLUDE the STM region (0x4a700-0x4afff),
 				// the VIA2-probe (0x47180-0x47280) and the high-ROM diagnostic sweep
