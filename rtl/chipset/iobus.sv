@@ -169,11 +169,14 @@ module iobus
 
 	// ---- read mux + acknowledge ----
 	// Read data returns on the high byte to match the CPU's byte-access lane.
-	// Latch dout ONCE on the first cycle of the access (sel & ~ack) and hold it.
-	// The SCC's register pointer clears on read, so recomputing every cycle would
-	// flip scc_rr (RR1->RR0) mid-access and the CPU would latch the wrong value.
+	// ACK is LEVEL-HELD: assert on the first cycle of an access (sel & ~ack),
+	// hold it while sel stays high, and drop it only when sel deasserts. A
+	// self-clearing (pulsed) ack oscillates while sel is held, which would fire
+	// the SCC pointer update (scc_ctrl & sel & ~ack) more than once per bus cycle
+	// and double-toggle the register pointer (RR1 -> RR0). Latch dout ONCE at
+	// assert time and hold it, so the SCC read-clears-pointer side effect and the
+	// data the CPU latches both happen exactly once per access.
 	always @(posedge clk) begin
-		ack <= 1'b0;
 		if (sel && !ack) begin
 			ack <= 1'b1;
 			if (via1_sel)      dout <= {via1_dout, 24'd0};
@@ -181,6 +184,8 @@ module iobus
 			else if (scc_sel)  dout <= scc_ctrl ? {scc_rr, scc_rr, scc_rr, scc_rr}
 			                                    : 32'd0;   // status all lanes; Rx data=0
 			else               dout <= 32'd0;          // unmapped I/O reads as 0
+		end else if (!sel) begin
+			ack <= 1'b0;
 		end
 	end
 
