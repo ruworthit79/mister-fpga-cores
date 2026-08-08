@@ -119,19 +119,21 @@ module iobus
 		.ca1(vbl), .cb1(1'b0)
 	);
 
-	// VIA2 port inputs (idle/ready levels). On the Quadra, VIA2 port A carries the
-	// active-low NuBus slot interrupt lines and the shared data bus used to talk to
-	// the ADB/RTC microcontroller; when nothing is asserting, those lines idle HIGH
-	// (0xFF). VIA2 port B bit1 is that microcontroller's ACK/ready handshake line,
-	// high when it is ready. The ROM's early VIA2 probe (ROM $47240) first waits for
-	// PB1=1 and PA=0xFF before writing its config commands, and its command
-	// handshake ($4723A) toggles PB2 (strobe) and polls PB1 (ack). With no real
-	// microcontroller attached we present the idle/ready levels so the probe and
-	// its command handshakes complete, instead of timing out and dropping the boot
-	// into the ROM's serial diagnostic monitor. (0x00 here previously read as "all
-	// slot interrupts asserted / bus busy", which is the wrong idle state.)
+	// VIA2 port inputs (external microcontroller handshake stub). On the Quadra,
+	// VIA2 port A carries the active-low NuBus slot interrupt lines and the shared
+	// data bus used to talk to an external microcontroller; idle HIGH (0xFF) means
+	// "no slot interrupting / bus released". VIA2 port B bit2 is a strobe the ROM
+	// drives (output), and port B bit1 is the microcontroller's ACK line (input).
+	//
+	// The ROM's VIA2 probe (ROM $47240) first waits for PB1=1 and PA=0xFF (idle),
+	// then runs a fully-interlocked 4-phase handshake per command byte ($4723A):
+	//   drive strobe PB2=0, require ACK PB1=0; then strobe PB2=1, require ACK PB1=1.
+	// A static ACK cannot satisfy both phases (it made phase 1 exit immediately with
+	// d6=2 = failure, dropping boot into the serial diagnostic monitor). The real
+	// device echoes the strobe on its ACK line, so model that: PB1 (ack, in) mirrors
+	// PB2 (strobe, out = orb bit2). PA idles at 0xFF.
 	wire [7:0] via2_pa_in = 8'hFF;
-	wire [7:0] via2_pb_in = 8'h02;   // bit1 = microcontroller ACK/ready
+	wire [7:0] via2_pb_in = {6'b0, via2_pb[2], 1'b0};  // PB1 ack mirrors PB2 strobe
 	via via2 (
 		.clk(clk), .reset(reset), .ce(via_ce),
 		.sel(via2_sel), .addr(via_reg), .din(din[31:24]), .dout(via2_dout), .rw(rw),
