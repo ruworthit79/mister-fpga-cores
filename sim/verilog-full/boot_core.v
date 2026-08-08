@@ -100,13 +100,19 @@ module boot_core(input clk, input reset);
 				nfetch = nfetch + 1;
 				if (nfetch % 500000 == 0)
 					$display("fetch#%0d PC=%08x", nfetch, dut.cpu_addr);
-				// push instruction fetches into the ring buffer
-				ring[rptr] = dut.cpu_addr; rptr = (rptr + 1) & 255;
-				// first time PC reaches the serial-monitor init/entry, dump the path in
-				if (!entered_mon && dut.cpu_addr >= 32'h4084_a82c &&
+				// push fetch PCs into the ring but EXCLUDE the known STM (0x4a800-0x4afff)
+				// and VIA2-probe (0x47180-0x47280) loop regions, so the 256-entry history
+				// holds the normal-boot code leading up to the STM-entry decision instead
+				// of being flooded by those loops.
+				if (!((dut.cpu_addr >= 32'h4084_a800 && dut.cpu_addr <= 32'h4084_afff) ||
+				      (dut.cpu_addr >= 32'h4084_7180 && dut.cpu_addr <= 32'h4084_7280))) begin
+					ring[rptr] = dut.cpu_addr; rptr = (rptr + 1) & 255;
+				end
+				// first time PC reaches the STM prologue, dump the distinct-PC path in
+				if (!entered_mon && dut.cpu_addr >= 32'h4084_a800 &&
 				    dut.cpu_addr <= 32'h4084_a842) begin
 					entered_mon <= 1'b1;
-					$display(">>> ENTER SERIAL MONITOR at PC=%08x fetch#%0d; last 256 fetches:",
+					$display(">>> ENTER STM at PC=%08x fetch#%0d; last 256 DISTINCT PCs:",
 						dut.cpu_addr, nfetch);
 					$display(">>> VIA2: ddra=%02x ora=%02x ddrb=%02x orb=%02x pb_in=%02x pb_read=%02x pa_read=%02x",
 						dut.iobus.via2.ddra, dut.iobus.via2.ora, dut.iobus.via2.ddrb,
