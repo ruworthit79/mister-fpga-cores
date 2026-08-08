@@ -79,9 +79,31 @@ booting Mac.
 3. **Hardware validation.** Quartus fit/timing, PLL lock, and on-board testing
    have not been done.
 
+## Quartus bring-up checklist (Superstation One / DE10-Nano, Cyclone V)
+
+Static-verified in this session (no Quartus toolchain in CI):
+
+- [x] Top module is `emu` (`Quadra950.sv`), instantiated by `sys/sys_top.v:1756`
+      with the standard MiSTer port list (CLK_50M/HDMI/VGA/LED/AUDIO/DDRAM/HPS_BUS).
+- [x] `files.qip` complete: all wired RTL + the **FPU** (`fpu_040.vhd`, VHDL,
+      before `cpu_wrapper.vhd`) + the **system PLL** (`rtl/pll.qip`). These two were
+      missing and would have failed the build; now fixed.
+- [x] VHDL/Verilog mixed-language order correct (Pack→ALU→Kernel→FPU→wrapper).
+- [x] All manifest SystemVerilog files lint clean (Verilator `--lint-only`).
+- [x] `.qsf` targets `sys.tcl` device + GENERATE_RBF_FILE for the .rbf output.
+
+To do on a machine with Quartus 17.0.x Standard:
+
+- [ ] Compile; confirm the `pll` (50 MHz) locks and timing closes (add explicit
+      false-paths/multicycles to `Quadra950.sdc` if the CPU-ce paths need them).
+- [ ] Flash the `.rbf` and confirm HDMI sync + the ROM POST runs (serial/video).
+- [ ] Validate DDR3 (RAM), then walk the boot chain on real silicon.
+
 ## Honest summary
 
-The hard central boot gate (machine identification) is solved and the whole
-non-CPU subsystem set is simulation-verified, but this is **not** a
-flash-and-boot core yet. Building it is useful for on-hardware bring-up and
-debugging; it is not a working Quadra 950 you can use.
+The central boot gates — machine identification **and the POST/STM divert** (a
+VIA1 port-A input bug, now fixed) — are solved, boot now clears POST and proceeds
+into RAM setup in sim, and the whole non-CPU subsystem set is simulation-verified.
+The Quartus project is structurally complete and should synthesize, but on-board
+fit/timing/PLL-lock and hardware boot have not yet been run. This is a strong
+bring-up/debug core; it is not yet a flash-and-boot Quadra 950 you can use.
