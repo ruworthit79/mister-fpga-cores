@@ -64,19 +64,26 @@ Each is independently testable.
   software package emulates them. No hardware FPU is present (`fpu_040.sv` is a
   Level-B anchor).
 
-Still open for Level A: **MOVE16** (`$F6xx`) and full **68040 exception stack
-frames** (format `$7` access-error frame; mainly matters once the MMU can fault,
-Level B). MOVE16 is deferred deliberately — see below.
+**MOVE16 is now implemented and verified** (see below). Still open for Level A:
+full **68040 exception stack frames** (format `$7` access-error frame; mainly
+matters once the MMU can fault, Level B) and explicit CPU-type=68040 reporting.
 
-#### MOVE16 (`$F6xx`) — implementation analysis / ready-to-execute spec
+#### MOVE16 (`$F620-$F627`, `(Ax)+,(Ay)+`) — DONE
 
-MOVE16 moves a 16-byte, 16-byte-aligned block. Unlike CINV/CPUSH it **cannot**
-be a no-op — a silent no-op would corrupt block copies. It must either execute
-correctly or keep its current clean line-F trap (the safe status quo). It was
-scoped in detail against the TG68 microcode and deferred to its own focused
-pass because it is novel microcode, not a contained edit, with no near-term
-payoff (full boot is gated earlier at the ROM's machine-ID scan — see
-`docs/BOOT_ANALYSIS.md`) and only blind (rebuild/sim) debugging available.
+MOVE16 moves a 16-byte, 16-byte-aligned block. Unlike CINV/CPUSH it cannot be a
+no-op (that would corrupt block copies). The postincrement-both form is now
+implemented in the kernel: the `"1111"` decode detects `$F620-$F627`, captures
+`Ay` from the extension word via `get_2ndOPC` (`sndOPC(14:12)`), and a
+`m16r`/`m16w` microstate pair does **four longword read→write passes** —
+reusing the memory-to-memory MOVE data-hold path (`exec_DIRECT`) — with a
+2-bit longword counter, incrementing `Ax`/`Ay` by 16 total. Verified by
+`sim/ghdl/tb_move16` (moves 16 bytes; `A0`→+16, `A1`→+16) and it still converts
+cleanly through `ghdl synth`. The absolute-address forms
+(`$F600/$F608/$F610/$F618`) still take a line-F trap (rare; TODO). Alignment
+note: a real 040 ignores `A[3:0]` and bursts a line; the 4×`MOVE.L` realization
+is bit-identical for the 16-byte-aligned operands BlockMove uses.
+
+##### Original implementation analysis (kept for reference)
 
 Encoding (5 forms; `Ax`=`opcode(2:0)`):
 - `$F620|Ax` `(Ax)+,(Ay)+` — **primary form**, has a 2nd word `1yyy...` with

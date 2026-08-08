@@ -377,7 +377,9 @@ architecture logic of TG68KdotC_Kernel is
 
 	signal micro_state		: micro_states;
 	signal next_micro_state	: micro_states;
-	
+	-- MOVE16 (Ax)+,(Ay)+ : 16 bytes = 4 longwords. Counter of longwords left.
+	signal m16_cnt				: std_logic_vector(2 downto 0);
+
 
 
 BEGIN  
@@ -3122,7 +3124,24 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				-- raise a privilege violation in user mode exactly like a real
 				-- 040. FPU F-line ops ($F2xx/$F3xx) fall through to trap_1111
 				-- below (LC040 personality: software-emulated by the FPSP).
-				IF cpu(1)='1' AND (opcode(11 downto 8)="0100" OR opcode(11 downto 8)="0101") THEN
+				IF cpu(1)='1' AND opcode(11 downto 3)="011000100" THEN
+					-- MOVE16 (Ax)+,(Ay)+  (opcode $F620-$F627, 2nd word 1yyy000000000000)
+					-- 16-byte (four longword) block move: read a longword from (Ax),
+					-- write it to (Ay), then Ax+=4 and Ay+=4, repeated four times.
+					-- Ax = opcode(2:0), Ay = sndOPC(14:12). Not privileged.
+					-- Alignment note: a real 68040 ignores address bits [3:0] and
+					-- performs a single 16-byte burst; this 4x MOVE.L realization is
+					-- bit-identical for 16-byte-aligned operands (the normal case).
+					datatype <= "10";			--Long (force longword transfers)
+					-- Keep exec_DIRECT asserted for the whole instruction so every
+					-- state="10" read pass latches data_read into data_write_tmp
+					-- (the memory-to-memory MOVE data-hold path).
+					set_exec(opcMOVE) <= '1';
+					IF decodeOPC='1' THEN
+						set(get_2ndOPC) <= '1';	--consume extension word (Ay in sndOPC)
+						next_micro_state <= m16r;
+					END IF;
+				ELSIF cpu(1)='1' AND (opcode(11 downto 8)="0100" OR opcode(11 downto 8)="0101") THEN
 					IF SVmode='0' THEN
 						trap_priv <= '1';
 						trapmake <= '1';
@@ -3266,9 +3285,17 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		IF rising_edge(clk) THEN
 	        IF Reset='1' THEN
 				micro_state <= ld_nn;
+				m16_cnt <= "100";
 			ELSIF clkena_lw='1' THEN
 				trapd <= trapmake;
 				micro_state <= next_micro_state;
+				-- MOVE16 longword counter: preload 4 on first entry to m16r,
+				-- decrement after each write pass (m16w).
+				IF next_micro_state=m16r AND micro_state/=m16w THEN
+					m16_cnt <= "100";
+				ELSIF micro_state=m16w THEN
+					m16_cnt <= m16_cnt - 1;
+				END IF;
 			END IF;
 		END IF;
 
@@ -3710,6 +3737,30 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					dest_areg <= '1';
 					setstate <= "10";
 					
+				WHEN m16r =>		-- MOVE16 (Ax)+,(Ay)+ : read longword from (Ax)+
+					set_datatype <= "10";		--Long
+					set(get_ea_now) <= '1';		--setstate="10" (read), base = rf_dest_addr = Ax
+					set(longaktion) <= '1';		--32-bit access
+					set(postadd) <= '1';		--Ax += 4
+					-- exec_DIRECT (from set_exec(opcMOVE) in decode) captures the read
+					-- longword into data_write_tmp; the write pass then drives it onto
+					-- the bus.  No alu_move here: that would corrupt the postincrement
+					-- address writeback (ALUout would become the moved data).
+					next_micro_state <= m16w;
+
+				WHEN m16w =>		-- MOVE16 (Ax)+,(Ay)+ : write held longword to (Ay)+
+					set_datatype <= "10";		--Long
+					setstate <= "11";			--write
+					set(longaktion) <= '1';		--32-bit access
+					set(postadd) <= '1';		--Ay += 4
+					dest_2ndHbits <= '1';		--rf_dest_addr = Ay = sndOPC(14:12)
+					dest_LDRareg <= '1';		--as an address register
+					IF m16_cnt = "001" THEN		--last longword: let the instruction finish
+						next_micro_state <= nop;
+					ELSE						--more longwords: read the next one
+						next_micro_state <= m16r;
+					END IF;
+
 				WHEN link1 =>		-- link
 					setstate <="11";
 					source_areg <= '1';
