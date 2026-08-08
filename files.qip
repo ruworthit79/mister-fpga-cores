@@ -13,11 +13,11 @@ set_global_assignment -name SDC_FILE Quadra950.sdc
 # System integration
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/quadra950.sv
 
-# System PLL (Altera PLL IP): Quadra950.sv instantiates `pll pll`. Include the
-# generated IP manifest so the `pll`/`pll_0002` entities are compiled. The
-# frequency is set to 50 MHz in rtl/pll/pll_0002.v (verify lock + timing on the
-# first hardware build).
-set_global_assignment -name QIP_FILE rtl/pll.qip
+# System PLL (Altera PLL IP, entities `pll`/`pll_0002`): Quadra950.sv instantiates
+# `pll pll` at 50 MHz (rtl/pll/pll_0002.v). Do NOT add rtl/pll.qip here - the
+# MiSTer framework already includes it: sys/sys.qip pulls in sys/pll_q<ver>.qip,
+# whose first line is `QIP_FILE rtl/pll.qip`. Listing it again defines the `pll`
+# entity twice and fails the Quartus compile (duplicate entity).
 
 # CPU: TG68 kernel (VHDL, LGPLv3) + bus adapter, instantiated by quadra950.sv
 # (Quartus mixed-language: a Verilog module may instantiate the VHDL entity.)
