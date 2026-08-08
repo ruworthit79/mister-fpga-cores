@@ -100,17 +100,18 @@ module boot_core(input clk, input reset);
 				nfetch = nfetch + 1;
 				if (nfetch % 500000 == 0)
 					$display("fetch#%0d PC=%08x", nfetch, dut.cpu_addr);
-				// push fetch PCs into the ring but EXCLUDE the known STM (0x4a800-0x4afff)
-				// and VIA2-probe (0x47180-0x47280) loop regions, so the 256-entry history
-				// holds the normal-boot code leading up to the STM-entry decision instead
-				// of being flooded by those loops.
-				if (!((dut.cpu_addr >= 32'h4084_a800 && dut.cpu_addr <= 32'h4084_afff) ||
-				      (dut.cpu_addr >= 32'h4084_7180 && dut.cpu_addr <= 32'h4084_7280))) begin
+				// push fetch PCs into the ring but EXCLUDE the STM region (0x4a700-0x4afff),
+				// the VIA2-probe (0x47180-0x47280) and the high-ROM diagnostic sweep
+				// (0x40880000-0x408fffff), so the 256-entry history holds the normal-boot
+				// code that CALLS the STM entry routine ($4A7D4) rather than those loops.
+				if (!((dut.cpu_addr >= 32'h4084_a700 && dut.cpu_addr <= 32'h4084_afff) ||
+				      (dut.cpu_addr >= 32'h4084_7180 && dut.cpu_addr <= 32'h4084_7280) ||
+				      (dut.cpu_addr >= 32'h4088_0000 && dut.cpu_addr <= 32'h408f_ffff))) begin
 					ring[rptr] = dut.cpu_addr; rptr = (rptr + 1) & 255;
 				end
-				// first time PC reaches the STM prologue, dump the distinct-PC path in
-				if (!entered_mon && dut.cpu_addr >= 32'h4084_a800 &&
-				    dut.cpu_addr <= 32'h4084_a842) begin
+				// first time PC reaches the STM ENTRY routine ($4A7D4), dump the caller path
+				if (!entered_mon && dut.cpu_addr >= 32'h4084_a7d4 &&
+				    dut.cpu_addr <= 32'h4084_a7ee) begin
 					entered_mon <= 1'b1;
 					$display(">>> ENTER STM at PC=%08x fetch#%0d; last 256 DISTINCT PCs:",
 						dut.cpu_addr, nfetch);
