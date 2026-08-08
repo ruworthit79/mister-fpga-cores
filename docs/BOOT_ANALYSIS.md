@@ -252,10 +252,59 @@ With the `ack` fix, the fast harness shows boot advancing far past the old gate:
   Timer 2 expires every ~187 k fetches, so the 12-timeout serial wait clears in
   ~2.2 M fetches.
 
-## Next steps (open work)
+## Current frontier: the ROM's STM (Serial Test Monitor) diagnostic
 
-Continue the boot chain past the serial-startup wait: expect RAM sizing (MCU
-bank probe), VIA/RTC time + timer interrupts, ADB, then SCSI to read a System
-file. The central gates so far — machine identification, 040 cache enable, ROM
-checksum, SCC/serial init — are all solved; boot is progressing sequentially
-through genuine ROM boot stages in the fast harness.
+With machine-ID, 040 cache, ROM checksum, SCC/serial and the VIA2 microcontroller
+handshake all cleared, boot runs the full power-on self-test (POST) and then
+**diverts into the ROM's built-in serial diagnostic** instead of continuing to a
+startup device. The diagnostic is identifiable from its own strings in high ROM:
+
+```
+04af08: STM Version 2.1, Scott Smyers
+04af28: CTE Version 1.5.1
+04aede: *ERROR*   04aee6: *APPLE*
+```
+
+STM = **Serial Test Monitor**; it emits an `*APPLE*` sign-on and then sits in a
+command-wait loop (`ROM $4A840`) polling the SCC receive register (`$50F0_4002`,
+RR0 bit0 = Rx char available) and VIA1 Timer 2 (`$50F0_1A00` IFR bit5) forever —
+it is waiting for commands from a host on the serial port that never come. On a
+healthy machine STM is **only entered on a POST failure**; on normal boot the ROM
+skips it. So the machine is failing at least one POST subtest.
+
+### What was traced and fixed
+
+* The single site that sets the STM failure flag is `bset #$1a,d7` at ROM
+  `$46D5A`, the tail of a VIA POST subtest (`$4B0DA`, run 256×) that selects an
+  ACR shift mode, writes the VIA **shift register** (reg $A), and polls IFR bit2
+  (SR transfer complete). Our VIA had **no shift register**, so IFR bit2 never
+  set and the subtest failed. **Fixed** by implementing the 6522 SR (reg $A + ACR
+  shift modes + IFR-bit2 completion); verified in isolation (`sim tb_sr`,
+  IFR bit2 sets after 14 polls) and against the isolated iobus/SCC test.
+* The VIA2 microcontroller handshake (`$47240`/`$4723A`, port A data + PB2 strobe
+  + PB1 ack) was also made to pass by presenting VIA2 idle/ready port levels
+  (PA=0xFF, PB1 following the strobe) — this is part of STM's own setup.
+
+### Why boot still reaches STM
+
+Even with the SR subtest passing, boot still lands in the `$4A840` STM loop. The
+POST is written in a **continuation-passing style** (routines chained through
+`a6`, computed `jmp (a5,d0)` dispatch), which makes the exact remaining
+STM-routing condition very hard to isolate statically — there are several
+branches into the diagnostic (`$4A806` on `d7` bit26, `$4A816` on `d0` bit12, and
+computed jumps) driven by flags set across many subtests. The POST exercises the
+CPU, FPU, cache and MMU heavily; because our CPU is a **68040 *personality* on the
+TG68 (68020-class) kernel** rather than a conformant MC68040, a CPU/FPU/cache
+conformance subtest is a strong candidate for the remaining trigger — that class
+of failure cannot be fully closed without a more complete 68040 model (or a POST
+bypass).
+
+### Status of the boot chain
+
+Solved gates: machine identification, 040 cache enable, ROM checksum, SCC/serial
+init, VIA1 Timer 2, VIA shift register, VIA2 microcontroller handshake. All
+peripheral unit tests (8 Icarus) and CPU/FPU tests (6 GHDL) pass. The remaining
+work to reach a startup device is to satisfy (or bypass) the rest of the ROM POST
+so it does not enter STM — the hardest and least certain step so far, versus the
+parallel tracks of hardware bring-up (Quartus for the Superstation One) and the
+target-spec features (Ethernet, floppy, CD/DVD, video modes, 256 MB).
