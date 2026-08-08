@@ -13,17 +13,25 @@ set_global_assignment -name SDC_FILE Quadra950.sdc
 # System integration
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/quadra950.sv
 
+# System PLL (Altera PLL IP): Quadra950.sv instantiates `pll pll`. Include the
+# generated IP manifest so the `pll`/`pll_0002` entities are compiled. The
+# frequency is set to 50 MHz in rtl/pll/pll_0002.v (verify lock + timing on the
+# first hardware build).
+set_global_assignment -name QIP_FILE rtl/pll.qip
+
 # CPU: TG68 kernel (VHDL, LGPLv3) + bus adapter, instantiated by quadra950.sv
 # (Quartus mixed-language: a Verilog module may instantiate the VHDL entity.)
 set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K_Pack.vhd
 set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68K_ALU.vhd
 set_global_assignment -name VHDL_FILE rtl/cpu/tg68k/TG68KdotC_Kernel.vhd
+# 68040 FPU (VHDL) - instantiated by cpu_wrapper (fpu : fpu_040), so it MUST be
+# compiled BEFORE cpu_wrapper.vhd for the VHDL elaboration to resolve.
+set_global_assignment -name VHDL_FILE rtl/cpu/fpu_040.vhd
 set_global_assignment -name VHDL_FILE rtl/cpu/cpu_wrapper.vhd
 
-# Phase 5 (68040) interface anchors - not yet wired into cpu_wrapper.
-# See docs/PHASE5_SCOPE.md. Uncomment when integration begins.
+# Phase 5 (68040) MMU interface anchor - present but not yet instantiated by
+# cpu_wrapper (see docs/PHASE5_SCOPE.md). Uncomment when integration begins.
 # set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/mmu_040.sv
-# set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/fpu_040.sv
 
 # Chipset - real Quadra 900/950 custom ICs
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/chipset/mcu.sv      ;# Memory Control Unit
