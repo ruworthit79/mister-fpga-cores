@@ -75,6 +75,7 @@ module boot_core(input clk, input reset);
 	integer t2_fires = 0; reg t2act_d = 0;
 	// PC ring buffer to capture the control flow INTO the serial monitor
 	reg [31:0] ring [0:255]; integer rptr = 0; reg entered_mon = 0; integer k;
+	integer npre = 0;
 	always @(posedge clk) begin
 		ts_d <= dut.cpu_ts;
 		if (dut.cpu_ts && !dut.cpu_ta && !dut.cpu_berr) begin
@@ -146,6 +147,13 @@ module boot_core(input clk, input reset);
 			$display("IO %s addr=%08x din=%08x dout=%08x", dut.cpu_rw?"RD":"WR",
 				dut.cpu_addr, dut.cpu_din, dut.cpu_dout);
 			niolog <= niolog + 1;
+		end
+		// PRE-MONITOR probe window: log all $5x I/O to find the probed device base
+		if (dut.cpu_ts && dut.cpu_ta && !entered_mon && nfetch > 2600000 && npre < 120 &&
+		    dut.cpu_addr[31:28] == 4'h5 && (dut.cpu_fc == 3'd1 || dut.cpu_fc == 3'd5)) begin
+			$display("PRE %s addr=%08x din=%08x dout=%08x f#%0d", dut.cpu_rw?"RD":"WR",
+				dut.cpu_addr, dut.cpu_din, dut.cpu_dout, nfetch);
+			npre <= npre + 1;
 		end
 		if (ce_pix && !HBlank && !VBlank && (r|g|b) != 0 && !drew) begin
 			drew <= 1'b1; $display(">>> DAFB drew a non-black pixel (r=%02x g=%02x b=%02x)!", r, g, b);
