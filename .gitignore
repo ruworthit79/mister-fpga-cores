@@ -16,6 +16,7 @@ qdb/
 *.qarlog
 c5_pin_model_dump.txt
 PLLJ_PLLSPE_INFO.txt
+build_id.v
 
 # Keep the releases folder but not built cores
 releases/*.rbf

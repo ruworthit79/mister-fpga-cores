@@ -60,6 +60,8 @@ assign VIDEO_ARY = (!ar) ? 12'd3 : 12'd0;
 localparam CONF_STR = {
 	"Quadra950;;",
 	"-;",
+	"F0,ROM,Load Quadra 950 ROM;",   // 1 MB Quadra 950 ROM -> ioctl_index 0 (see mcu.sv)
+	"-;",
 	"S0,IMGHDVDSK,Mount SCSI0;",
 	"S1,IMGHDVDSK,Mount SCSI1;",
 	"-;",
@@ -168,7 +170,10 @@ pll pll
 	.locked(pll_locked)
 );
 
-wire reset = RESET | status[0] | buttons[1] | ~pll_locked;
+// Hold the core in reset while the Quadra ROM is being downloaded (ioctl_index 0)
+// so the CPU starts fresh from the newly loaded ROM once the transfer completes.
+wire rom_download = ioctl_download & (ioctl_index == 8'd0);
+wire reset = RESET | status[0] | buttons[1] | ~pll_locked | rom_download;
 
 //////////////////////////////////////////////////////////////////
 //  PRAM NVRAM save / restore via the ioctl save file (NVRAM_INDEX).
