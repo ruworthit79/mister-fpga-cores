@@ -140,7 +140,11 @@ module iobus
 	wire       scc_sel  = sel & (addr[23:12] == 12'hF04);
 	wire       scc_ctrl = scc_sel & ~addr[2];        // control port (data at +4/+6)
 	wire       scc_chA  = addr[1];                    // 1 = channel A
-	wire [7:0] scc_din  = addr[1] ? din[15:8] : din[31:24];
+	// Byte-lane-agnostic: for a byte write exactly one lane carries the byte (the
+	// others are 0), so OR them; on read we drive the status on all four lanes so
+	// the CPU picks it up whichever lane it expects. Avoids depending on the exact
+	// SCC data-lane wiring (which differs from the 4-aligned VIA regs).
+	wire [7:0] scc_din  = din[31:24] | din[23:16] | din[15:8] | din[7:0];
 	reg  [2:0] scc_ptr [0:1];
 	reg  [7:0] scc_rr;
 	always @(*) begin
@@ -169,9 +173,8 @@ module iobus
 		ack <= 1'b0;
 		if (via1_sel)      dout <= {via1_dout, 24'd0};
 		else if (via2_sel) dout <= {via2_dout, 24'd0};
-		else if (scc_sel)  dout <= scc_ctrl ? (addr[1] ? {16'd0, scc_rr, 8'd0}
-		                                               : {scc_rr, 24'd0})
-		                                    : 32'd0;   // SCC data (Rx) reads 0
+		else if (scc_sel)  dout <= scc_ctrl ? {scc_rr, scc_rr, scc_rr, scc_rr}
+		                                    : 32'd0;   // status on all lanes; data (Rx)=0
 		else               dout <= 32'd0;          // unmapped I/O reads as 0
 		if (sel && !ack) ack <= 1'b1;
 	end
