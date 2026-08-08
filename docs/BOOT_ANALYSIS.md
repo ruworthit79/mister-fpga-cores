@@ -189,13 +189,37 @@ So the boot sequence now verified in sim is:
 checksum**, all with `berr=0` and zero unexpected exceptions — each step
 unblocked by a correct 68040 behaviour (I/O aliasing, CACR).
 
+## RESOLVED: sim throughput — fast harness runs THROUGH the checksum
+
+The `--timing` harness was too slow (~200 K fetches in 55 min) to pass the
+~1.4M-fetch checksum. Added a **fast harness** (`sim/verilog-full/run_fast.sh`,
+`boot_core.v` + `sim_main_full.cpp`): the full core as a clock-input module (no
+`#` delays) built by Verilator **without `--timing`**, driven by a C++ clock
+loop — **~30× faster** (4M cycles in ~12 s). Boot now runs cleanly **through the
+checksum** (~1.4M fetches) and into **ROM initialization** (a sequential
+ROM-data scan `$8b000→$eb000+`), `berr=0`, no stalls.
+
+## Current frontier: SCC (Z8530) serial init — being addressed
+
+After the checksum + init scan, boot settles into a tight loop at ROM
+`$4AEBA–$4AEC8` (stuck ~12M fetches):
+```
+$4AEBA: move.w #1,d0 ; move.b d0,$2(a3,d3) ; btst #0,$2(a3) ; beq $4AEBA
+```
+`a3 = DecoderInfo+$C = $50F0_4000` = the **SCC (Zilog Z8530)**. The routine
+writes a WR config table (`$4AE64`+) then polls a read register's bit 0 (All
+Sent / transmitter idle). The SCC was stubbed (reads 0), so the bit never sets
+and init loops forever.
+
+**Fix (in `iobus.sv`):** a minimal SCC status model — the Z8530 register-pointer
+two-step access, returning RR0 = Tx Buffer Empty and RR1 = All Sent (no real
+serial link), on the correct big-endian byte lane. Expected to release the SCC
+init loop so boot continues to the next stage.
+
 ## Next steps (open work)
 
-1. **Sim throughput** to see past the checksum: either a faster harness (drop
-   `--timing`; or a targeted checksum fast-forward in the testbench), or accept
-   the checksum as hardware-instant and focus on the post-checksum code
-   statically. Then trace the next real step (RAM sizing / MCU bank probe →
-   VIA/RTC time + timer interrupts → ADB → SCSI to read a System file).
-2. Each is a probe-fidelity step, but the two central gates — machine
-   identification and 040 cache enable — are solved, and boot is progressing
-   sequentially through genuine ROM boot stages.
+Continue the boot chain past the SCC: expect RAM sizing (MCU bank probe),
+VIA/RTC time + timer interrupts, ADB, then SCSI to read a System file. The two
+central gates (machine identification, 040 cache enable) plus the checksum and
+SCC init are solved/addressed; boot is progressing sequentially through genuine
+ROM boot stages in the fast harness.

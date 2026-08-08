@@ -128,6 +128,37 @@ module iobus
 		.ca1(1'b0), .cb1(1'b0)
 	);
 
+	// ---- SCC (Zilog Z8530) minimal status model, $50F0_4xxx ----
+	// The ROM initializes the SCC (writes a WR config table) and polls RR status
+	// bits (e.g. reg 1 / All Sent) before continuing. We have no real serial
+	// link, so present a "transmitter idle" SCC: RR0 = Tx Buffer Empty (bit2),
+	// RR1 = All Sent (bit0); other read registers 0; Rx data reads 0. A control
+	// write with pointer==0 selects the register (low 3 bits); the next control
+	// access clears the pointer (Z8530 two-step access). Two channels: A at the
+	// odd word offset ($..2/$..6), B at the even ($..0/$..4). Byte lane follows
+	// the 68040 big-endian convention (addr[1]=0 -> D31:24, addr[1]=1 -> D15:8).
+	wire       scc_sel  = sel & (addr[23:12] == 12'hF04);
+	wire       scc_ctrl = scc_sel & ~addr[2];        // control port (data at +4/+6)
+	wire       scc_chA  = addr[1];                    // 1 = channel A
+	wire [7:0] scc_din  = addr[1] ? din[15:8] : din[31:24];
+	reg  [2:0] scc_ptr [0:1];
+	reg  [7:0] scc_rr;
+	always @(*) begin
+		case (scc_ptr[scc_chA])
+			3'd0:    scc_rr = 8'h04;   // RR0: Tx Buffer Empty
+			3'd1:    scc_rr = 8'h01;   // RR1: All Sent (transmitter idle)
+			default: scc_rr = 8'h00;
+		endcase
+	end
+	always @(posedge clk) begin
+		if (reset) begin scc_ptr[0] <= 3'd0; scc_ptr[1] <= 3'd0; end
+		else if (scc_ctrl & sel & ~ack) begin        // once per bus cycle
+			if (rw)                         scc_ptr[scc_chA] <= 3'd0;         // read clears ptr
+			else if (scc_ptr[scc_chA] == 0) scc_ptr[scc_chA] <= scc_din[2:0]; // select register
+			else                            scc_ptr[scc_chA] <= 3'd0;         // wrote WRn
+		end
+	end
+
 	// ---- interrupt priority (level 2 = VIA2/SCSI, level 1 = VIA1), active low --
 	wire [2:0] level = (via2_irq | ext_irq2) ? 3'd2 : via1_irq ? 3'd1 : 3'd0;
 	assign ipl = ~level;
@@ -138,6 +169,9 @@ module iobus
 		ack <= 1'b0;
 		if (via1_sel)      dout <= {via1_dout, 24'd0};
 		else if (via2_sel) dout <= {via2_dout, 24'd0};
+		else if (scc_sel)  dout <= scc_ctrl ? (addr[1] ? {16'd0, scc_rr, 8'd0}
+		                                               : {scc_rr, 24'd0})
+		                                    : 32'd0;   // SCC data (Rx) reads 0
 		else               dout <= 32'd0;          // unmapped I/O reads as 0
 		if (sel && !ack) ack <= 1'b1;
 	end
