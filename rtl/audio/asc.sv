@@ -65,7 +65,10 @@ module asc
 	wire reg_wr = acc & ~rw & (addr[11] == 1'b0);
 
 	function signed [15:0] to_s16(input [7:0] s);
-		to_s16 = $signed({s, 8'b0}) - 16'sd32768;   // (s-128)<<8
+		// Unsigned 8-bit sample -> centered signed 16-bit = (s-128)<<8.
+		// (s<<8) - 32768 == (s<<8) XOR 0x8000 (16-bit two's complement); the XOR
+		// form avoids the `16'sd32768` overflow (signed 16-bit max is 32767).
+		to_s16 = {s, 8'b0} ^ 16'h8000;
 	endfunction
 
 	always @(posedge clk) begin

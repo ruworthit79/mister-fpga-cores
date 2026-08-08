@@ -6,6 +6,18 @@
 #  NOT the later Centris/Quadra 610/650/800 "Wombat" parts (djMEMC/IOSB).
 # --------------------------------------------------------------------------
 
+# Source search paths. The MiSTer framework's PLL IP qips (sys/pll_hdmi.qip,
+# pll_audio.qip, pll_cfg.qip) reference their .v files via
+# `[file join $::quartus(qip_path) ...]`. In some Quartus setups that qip_path does
+# not resolve for these nested includes (the hardcoded rtl/pll.qip line works, but
+# the qip_path-based ones fail -> "undefined entity pll_hdmi/pll_audio/pll_cfg_hdmi"
+# during sys_top Analysis & Synthesis). Adding sys/ (and the IP subfolders) to the
+# search path lets Quartus resolve those files by name regardless.
+set_global_assignment -name SEARCH_PATH sys
+set_global_assignment -name SEARCH_PATH sys/pll_hdmi
+set_global_assignment -name SEARCH_PATH sys/pll_audio
+set_global_assignment -name SEARCH_PATH sys/pll_cfg
+
 # Top level (emu module wrapper)
 set_global_assignment -name SYSTEMVERILOG_FILE Quadra950.sv
 set_global_assignment -name SDC_FILE Quadra950.sdc
