@@ -73,6 +73,8 @@ module boot_core(input clk, input reset);
 	reg [31:0] win_lo = 32'hFFFF_FFFF, win_hi = 0;
 	// VIA1 timer2 expiry counter (did the timer ever fire?)
 	integer t2_fires = 0; reg t2act_d = 0;
+	// PC ring buffer to capture the control flow INTO the serial monitor
+	reg [31:0] ring [0:255]; integer rptr = 0; reg entered_mon = 0; integer k;
 	always @(posedge clk) begin
 		ts_d <= dut.cpu_ts;
 		if (dut.cpu_ts && !dut.cpu_ta && !dut.cpu_berr) begin
@@ -97,6 +99,17 @@ module boot_core(input clk, input reset);
 				nfetch = nfetch + 1;
 				if (nfetch % 500000 == 0)
 					$display("fetch#%0d PC=%08x", nfetch, dut.cpu_addr);
+				// push instruction fetches into the ring buffer
+				ring[rptr] = dut.cpu_addr; rptr = (rptr + 1) & 255;
+				// first time PC reaches the serial-monitor init/entry, dump the path in
+				if (!entered_mon && dut.cpu_addr >= 32'h4084_a82c &&
+				    dut.cpu_addr <= 32'h4084_a842) begin
+					entered_mon <= 1'b1;
+					$display(">>> ENTER SERIAL MONITOR at PC=%08x fetch#%0d; last 256 fetches:",
+						dut.cpu_addr, nfetch);
+					for (k = 0; k < 256; k = k + 1)
+						$display("   [%0d] %08x", k, ring[(rptr + k) & 255]);
+				end
 			end
 			// report when the PC advances into a NEW higher region (boot moving on)
 			if (dut.cpu_addr > max_pc && dut.cpu_addr < 32'h5000_0000) begin
