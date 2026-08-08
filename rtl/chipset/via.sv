@@ -52,12 +52,24 @@ module via
 	reg  [7:0] t2l_l;
 	reg [15:0] t2c;
 	reg  [7:0] acr, pcr;
-	reg  [6:0] ifr;                 // bit6=T1 bit5=T2 bit4=CB1 bit1=CA1 ...
+	reg  [6:0] ifr;                 // bit6=T1 bit5=T2 bit4=CB1 bit2=SR bit1=CA1 ...
 	reg  [6:0] ier;
 	reg        t1_active, t2_active;
 
+	// ---- shift register (SR, reg 0xA) ----
+	// The 6522 shift register clocks 8 bits under the mode selected by ACR[4:2].
+	// The Quadra ROM's VIA POST configures a shift mode, writes/reads the SR, then
+	// polls IFR bit2 (SR transfer complete). We model an 8-bit shift that completes
+	// a fixed number of phase-2 ticks after the SR is accessed and raises IFR bit2;
+	// this is exact enough for the internal-clock modes and lets the external-clock
+	// mode used by the POST complete too (no real CB1 clock source is attached).
+	reg  [7:0] sr;                  // shift-register data
+	reg  [3:0] sr_cnt;              // bits shifted so far
+	reg        sr_active;           // a shift is in progress
+	wire       sr_mode_on = (acr[4:2] != 3'b000);   // SR enabled by ACR
+
 	// IFR bit positions
-	localparam IB_CA1 = 1, IB_CB1 = 4, IB_T2 = 5, IB_T1 = 6;
+	localparam IB_CA1 = 1, IB_SR = 2, IB_CB1 = 4, IB_T2 = 5, IB_T1 = 6;
 
 	assign pa_out = ora;
 	assign pb_out = orb;
@@ -84,7 +96,7 @@ module via
 			4'h7: dout = t1l[15:8];
 			4'h8: dout = t2c[7:0];
 			4'h9: dout = t2c[15:8];
-			4'hA: dout = 8'h00;              // SR (not implemented)
+			4'hA: dout = sr;                 // SR (shift register)
 			4'hB: dout = acr;
 			4'hC: dout = pcr;
 			4'hD: dout = {irq_any, ifr};
@@ -109,6 +121,7 @@ module via
 			acr <= 0; pcr <= 0; ifr <= 0; ier <= 0;
 			t1_active <= 0; t2_active <= 0;
 			ca1_d <= 0; cb1_d <= 0;
+			sr <= 0; sr_cnt <= 0; sr_active <= 0;
 		end else begin
 			// ---- timers / edges advance on the phase-2 enable ----
 			if (ce) begin
@@ -131,6 +144,15 @@ module via
 				ca1_d <= ca1; cb1_d <= cb1;
 				if (ca1_edge) ifr[IB_CA1] <= 1'b1;
 				if (cb1_edge) ifr[IB_CB1] <= 1'b1;
+
+				// shift register: advance one bit per phase-2 tick; after 8 bits
+				// the transfer is complete -> raise IFR bit2 (SR) and stop.
+				if (sr_active) begin
+					if (sr_cnt == 4'd7) begin
+						ifr[IB_SR] <= 1'b1;
+						sr_active  <= 1'b0;
+					end else sr_cnt <= sr_cnt + 4'd1;
+				end
 			end
 
 			// ---- CPU writes ----
@@ -148,6 +170,8 @@ module via
 					4'h8: t2l_l <= din;                              // T2C-L latch
 					4'h9: begin t2c <= {din, t2l_l}; ifr[IB_T2] <= 1'b0;
 					            t2_active <= 1'b1; end
+					4'hA: begin sr <= din; ifr[IB_SR] <= 1'b0;   // write SR
+					            if (sr_mode_on) begin sr_active <= 1'b1; sr_cnt <= 4'd0; end end
 					4'hB: acr <= din;
 					4'hC: pcr <= din;
 					4'hD: ifr <= ifr & ~din[6:0];                    // write-1-clear
@@ -165,6 +189,9 @@ module via
 					4'h1: ifr[IB_CA1] <= 1'b0;
 					4'h4: ifr[IB_T1]  <= 1'b0;   // read T1C-L clears T1 flag
 					4'h8: ifr[IB_T2]  <= 1'b0;   // read T2C-L clears T2 flag
+					4'hA: begin ifr[IB_SR] <= 1'b0;   // read SR clears flag; in an input
+					            // mode, reading kicks off the next 8-bit shift-in.
+					            if (sr_mode_on && !acr[4]) begin sr_active <= 1'b1; sr_cnt <= 4'd0; end end
 					default: ;
 				endcase
 			end
