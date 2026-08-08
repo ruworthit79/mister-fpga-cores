@@ -17,4 +17,9 @@ ghdl synth --std=08 -fsynopsys --out=verilog \
 	$RTL/cpu_wrapper.vhd \
 	-e cpu_wrapper > "$OUT" 2> convert.log
 
+# ghdl synth emits the scalar output `fpu_present` as BOTH a port and an internal
+# `wire fpu_present;` - GHDL tolerates it but Verilator rejects the duplicate.
+# Strip the redundant internal wire (harmless; Quartus uses the VHDL directly).
+sed -i '/^  wire fpu_present;$/d' "$OUT"
+
 echo "wrote $OUT ($(wc -l < "$OUT") lines); top module: cpu_wrapper"
