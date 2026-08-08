@@ -285,26 +285,40 @@ skips it. So the machine is failing at least one POST subtest.
   + PB1 ack) was also made to pass by presenting VIA2 idle/ready port levels
   (PA=0xFF, PB1 following the strobe) — this is part of STM's own setup.
 
-### Why boot still reaches STM
+### The STM divert — ROOT-CAUSED and FIXED (VIA1 port-A input)
 
-Even with the SR subtest passing, boot still lands in the `$4A840` STM loop. The
-POST is written in a **continuation-passing style** (routines chained through
-`a6`, computed `jmp (a5,d0)` dispatch), which makes the exact remaining
-STM-routing condition very hard to isolate statically — there are several
-branches into the diagnostic (`$4A806` on `d7` bit26, `$4A816` on `d0` bit12, and
-computed jumps) driven by flags set across many subtests. The POST exercises the
-CPU, FPU, cache and MMU heavily; because our CPU is a **68040 *personality* on the
-TG68 (68020-class) kernel** rather than a conformant MC68040, a CPU/FPU/cache
-conformance subtest is a strong candidate for the remaining trigger — that class
-of failure cannot be fully closed without a more complete 68040 model (or a POST
-bypass).
+The STM entry decision is `$4A806 bne` on **`d7` bit26**. Full-system Verilator
+register capture (probing the synthesized kernel `regfile[]`) showed `d7` =
+`0x04410001` at the decision — bit26 set. The **only** ROM site that sets `d7`
+bit26 is `$46D5A` (`bset #26,d7`), and the branch that reaches it is at `$46CCE`:
+
+```
+    bclr #0,(0x600,a2)     ; a2 = $50F00000 (VIA1); DDRA bit0 -> input
+    bclr #1,(0x1E00,a2)    ; ORA bit1
+    btst #0,(0x1E00,a2)    ; read VIA1 port-A bit0 (register 15, ORA no-handshake)
+    beq  $46D5A            ; PA0 == 0  ->  bset #26,d7  ->  STM
+```
+
+So the ROM sets **VIA1 PA0 to input and requires it to read 1**. `iobus.sv`
+instantiated VIA1 with `.pa_in(8'h00)`, so PA0 read 0 and the subtest failed.
+On real Quadra 950 hardware the VIA1 port-A input pins are pulled high (PA7 = SCC
+WrReq idle-high, PA6 = board sense, …). **Fix:** drive `via1_pa_in = 8'hFF`.
+
+Verified in the full-system boot sim: `d7` bit26 is **never set**, the CPU
+**never enters the STM loop** (previously stuck at `$4A840` forever), and boot
+advances ~2.6M fetches into new territory — the entire upper-ROM POST sweep
+(`$408Fxxxx`), ASC init (`$50F14834`), then a RAM copy/test loop at `$407116`
+(`tst.b (a5); dbf d4` inside `move.b (a4)+,(a1)+`). At the decision code now
+`d7`=`0x00000001` (bit26 clear) and `d0` bit12=1, so **both** STM conditions are
+false — the code passes straight through the decision and continues booting.
 
 ### Status of the boot chain
 
 Solved gates: machine identification, 040 cache enable, ROM checksum, SCC/serial
-init, VIA1 Timer 2, VIA shift register, VIA2 microcontroller handshake. All
-peripheral unit tests (8 Icarus) and CPU/FPU tests (6 GHDL) pass. The remaining
-work to reach a startup device is to satisfy (or bypass) the rest of the ROM POST
-so it does not enter STM — the hardest and least certain step so far, versus the
-parallel tracks of hardware bring-up (Quartus for the Superstation One) and the
-target-spec features (Ethernet, floppy, CD/DVD, video modes, 256 MB).
+init, VIA1 Timer 2, VIA shift register, VIA2 microcontroller handshake, **VIA1
+port-A input (STM divert)**. All peripheral unit tests (8 Icarus) and CPU/FPU
+tests (6 GHDL) pass. Boot now clears the POST/STM decision and proceeds into RAM
+setup; the next frontier is downstream of the `$407116` RAM loop. The CPU's 68040
+instruction support (MOVEC 040 control regs, CINV/CPUSH/PFLUSH/PTEST no-ops,
+MOVE16, FPU structural ops) proved sufficient for POST — the STM divert was a
+peripheral input bug, not a CPU-conformance wall.

@@ -75,6 +75,10 @@ module boot_core(input clk, input reset);
 	integer t2_fires = 0; reg t2act_d = 0;
 	// PC ring buffer to capture the control flow INTO the serial monitor
 	reg [31:0] ring [0:255]; integer rptr = 0; reg entered_mon = 0; integer k;
+	integer stm_dumps = 0;
+	integer n46d = 0;
+	integer nfb = 0;
+	reg jump_dumped = 0;
 	integer npre = 0;
 	always @(posedge clk) begin
 		ts_d <= dut.cpu_ts;
@@ -109,18 +113,47 @@ module boot_core(input clk, input reset);
 				      (dut.cpu_addr >= 32'h4088_0000 && dut.cpu_addr <= 32'h408f_ffff))) begin
 					ring[rptr] = dut.cpu_addr; rptr = (rptr + 1) & 255;
 				end
-				// first time PC reaches the STM ENTRY routine ($4A7D4), dump the caller path
-				if (!entered_mon && dut.cpu_addr >= 32'h4084_a7d4 &&
-				    dut.cpu_addr <= 32'h4084_a7ee) begin
-					entered_mon <= 1'b1;
-					$display(">>> ENTER STM at PC=%08x fetch#%0d; last 256 DISTINCT PCs:",
-						dut.cpu_addr, nfetch);
-					$display(">>> VIA2: ddra=%02x ora=%02x ddrb=%02x orb=%02x pb_in=%02x pb_read=%02x pa_read=%02x",
-						dut.iobus.via2.ddra, dut.iobus.via2.ora, dut.iobus.via2.ddrb,
-						dut.iobus.via2.orb, dut.iobus.via2_pb_in, dut.iobus.via2.pb_read,
-						dut.iobus.via2.pa_read);
-					for (k = 0; k < 256; k = k + 1)
-						$display("   [%0d] %08x", k, ring[(rptr + k) & 255]);
+				// Dump address registers at the fetch of the bit26 subtest's key PCs:
+				// $46D10 / $46D2E (the `move.b (0x40,a3),d3` test entries) and $46D5A
+				// (the `bset #26,d7` fail site). Fetch-time regfile reads are reliable
+				// (they gave the correct D7). This reveals the a3/a0 pointer used.
+				if (n46d < 40 && (dut.cpu_addr == 32'h4084_6d10 ||
+				    dut.cpu_addr == 32'h4084_6d2e || dut.cpu_addr == 32'h4084_6d5a)) begin
+					n46d = n46d + 1;
+					$display(">>> BIT26 PC=%08x f#%0d D7=%08x A2=%08x A3=%08x  [A2+1E00]=%08x",
+						dut.cpu_addr, nfetch, dut.cpu.cpu.regfile[7],
+						dut.cpu.cpu.regfile[10], dut.cpu.cpu.regfile[11],
+						dut.cpu.cpu.regfile[10] + 32'h1e00);
+					// at the bset #26 fail site, dump the 40 predecessor PCs (how we got here)
+					if (dut.cpu_addr == 32'h4084_6d5a)
+						for (k = 0; k < 40; k = k + 1)
+							$display("   pre[%0d] %08x", k, ring[(rptr + 216 + k) & 255]);
+				end
+				// One-shot: the FIRST time the CPU FETCHES from I/O space 0x50fb40xx
+				// (executing from I/O = wild jump / bad vector), dump the recent PC
+				// history + SR/VBR so we can see how it got there.
+				if (!jump_dumped && dut.cpu_addr[31:8] == 24'h50fb40) begin
+					jump_dumped = 1'b1;
+					$display(">>> WILDJUMP to %08x f#%0d  A0=%08x A3=%08x A7=%08x; last 48 PCs:",
+						dut.cpu_addr, nfetch, dut.cpu.cpu.regfile[8],
+						dut.cpu.cpu.regfile[11], dut.cpu.cpu.regfile[15]);
+					for (k = 0; k < 48; k = k + 1)
+						$display("   [%0d] %08x", k, ring[(rptr + 208 + k) & 255]);
+				end
+				// Dump the CPU register file at each fetch in the STM-entry/decision
+				// window [$4A7D4,$4A842] for the first `stm_dumps` visits, so we can
+				// read the accumulated POST failure flags (d7 bit26, d0 bit12, d2 bit24)
+				// that decide STM-vs-boot. Path: dut.cpu.cpu.regfile[] (kernel regfile,
+				// D0-D7 = [0..7], A0-A7 = [8..15]).
+				if (stm_dumps < 24 && dut.cpu_addr >= 32'h4084_a7d4 &&
+				    dut.cpu_addr <= 32'h4084_a842) begin
+					stm_dumps = stm_dumps + 1;
+					$display(">>> STM-win PC=%08x fetch#%0d  D0=%08x D1=%08x D2=%08x D7=%08x  A0=%08x A6=%08x A7=%08x",
+						dut.cpu_addr, nfetch,
+						dut.cpu.cpu.regfile[0], dut.cpu.cpu.regfile[1],
+						dut.cpu.cpu.regfile[2], dut.cpu.cpu.regfile[7],
+						dut.cpu.cpu.regfile[8], dut.cpu.cpu.regfile[14],
+						dut.cpu.cpu.regfile[15]);
 				end
 			end
 			// report when the PC advances into a NEW higher region (boot moving on)
@@ -167,6 +200,22 @@ module boot_core(input clk, input reset);
 			$display("PRE %s addr=%08x din=%08x dout=%08x f#%0d", dut.cpu_rw?"RD":"WR",
 				dut.cpu_addr, dut.cpu_din, dut.cpu_dout, nfetch);
 			npre <= npre + 1;
+		end
+		// Capture the byte read at [a3+0x40] by the POST subtest at $46D10/$46D2E
+		// that sets D7 bit26 (the STM divert). Log data reads while the last fetch
+		// PC is in [$46D00,$46D70], with a0/a3, to reveal the misread config/status
+		// byte and its physical address.
+		// Capture reads to any VIA register 15 (ORA, offset 0x1E00 within a device
+		// page): addr[12:0]==0x1E00. This is what the fail subtest btst-tests bit0 of.
+		if (dut.cpu_ts && dut.cpu_ta && (dut.cpu_fc == 3'd1 || dut.cpu_fc == 3'd5) &&
+		    dut.cpu_addr[12:0] == 13'h1e00 && dut.cpu_addr[31:24]==8'h50 && nfb < 30) begin
+			$display("VIAr15 rd PC=%08x addr=%08x din=%08x byte=%02x f#%0d",
+				last_pc, dut.cpu_addr, dut.cpu_din,
+				(dut.cpu_addr[1:0]==2'b00)?dut.cpu_din[31:24]:
+				(dut.cpu_addr[1:0]==2'b01)?dut.cpu_din[23:16]:
+				(dut.cpu_addr[1:0]==2'b10)?dut.cpu_din[15:8]:dut.cpu_din[7:0],
+				nfetch);
+			nfb <= nfb + 1;
 		end
 		if (ce_pix && !HBlank && !VBlank && (r|g|b) != 0 && !drew) begin
 			drew <= 1'b1; $display(">>> DAFB drew a non-black pixel (r=%02x g=%02x b=%02x)!", r, g, b);
