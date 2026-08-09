@@ -21,6 +21,12 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 entity cpu_wrapper is
+	generic(
+		-- Pass-through to fpu_040. Default 0 = LC040 (software FPSP), which keeps
+		-- the design within the Cyclone V. Simulation sets 1 to exercise the HW
+		-- arithmetic datapath.
+		HW_ARITH : integer := 0
+	);
 	port(
 		clk   : in  std_logic;
 		ce    : in  std_logic;                       -- 33 MHz clock enable
@@ -91,6 +97,7 @@ architecture rtl of cpu_wrapper is
 	end component;
 
 	component fpu_040 is
+		generic( HW_ARITH : integer := 1 );
 		port(
 			clk       : in  std_logic;
 			reset     : in  std_logic;
@@ -172,6 +179,7 @@ begin
 
 	-- Integrated 68040 FPU. Driven by the kernel's F-line (cp id 1) decode.
 	fpu : fpu_040
+		generic map( HW_ARITH => HW_ARITH )
 		port map(
 			clk => clk, reset => reset,
 			op_valid => k_fpu_op_valid, cmd => k_fpu_cmd,

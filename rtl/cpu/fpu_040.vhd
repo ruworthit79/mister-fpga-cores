@@ -18,6 +18,14 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 entity fpu_040 is
+	generic(
+		-- 1 = synthesize the hardware arithmetic datapath (FADD/FSUB/FMUL/FDIV/
+		--     FSQRT/FCMP/FINT) - large (128-bit divider, 64x64 mult, digit-by-digit
+		--     sqrt). Used in simulation.
+		-- 0 = those ops raise `unimpl` and trap to the software FPSP (LC040 mode).
+		--     ~10k fewer combinational nodes - needed to fit the Cyclone V.
+		HW_ARITH : integer := 1
+	);
 	port(
 		clk       : in  std_logic;
 		reset     : in  std_logic;
@@ -424,31 +432,43 @@ begin
 						FPSR(27 downto 24) <= classify(src);
 
 					-- Hardware arithmetic (68k semantics: FPn = FPn <op> FPm).
+					-- Gated by HW_ARITH: when 0 the big datapath is not synthesized
+					-- and these trap to the software FPSP (LC040 mode).
 					when FPU_FADD =>
-						res := fp_addsub(dstv, src);
-						fpreg(to_integer(unsigned(dst_reg))) <= res;
-						FPSR(27 downto 24) <= classify(res);
+						if HW_ARITH = 1 then
+							res := fp_addsub(dstv, src);
+							fpreg(to_integer(unsigned(dst_reg))) <= res;
+							FPSR(27 downto 24) <= classify(res);
+						else done <= '0'; unimpl <= '1'; end if;
 
 					when FPU_FSUB =>
-						bneg := (not src(79)) & src(78 downto 0);   -- FPn + (-FPm)
-						res  := fp_addsub(dstv, bneg);
-						fpreg(to_integer(unsigned(dst_reg))) <= res;
-						FPSR(27 downto 24) <= classify(res);
+						if HW_ARITH = 1 then
+							bneg := (not src(79)) & src(78 downto 0);   -- FPn + (-FPm)
+							res  := fp_addsub(dstv, bneg);
+							fpreg(to_integer(unsigned(dst_reg))) <= res;
+							FPSR(27 downto 24) <= classify(res);
+						else done <= '0'; unimpl <= '1'; end if;
 
 					when FPU_FMUL =>
-						res := fp_mul(dstv, src);
-						fpreg(to_integer(unsigned(dst_reg))) <= res;
-						FPSR(27 downto 24) <= classify(res);
+						if HW_ARITH = 1 then
+							res := fp_mul(dstv, src);
+							fpreg(to_integer(unsigned(dst_reg))) <= res;
+							FPSR(27 downto 24) <= classify(res);
+						else done <= '0'; unimpl <= '1'; end if;
 
 					when FPU_FDIV =>
-						res := fp_div(dstv, src);
-						fpreg(to_integer(unsigned(dst_reg))) <= res;
-						FPSR(27 downto 24) <= classify(res);
+						if HW_ARITH = 1 then
+							res := fp_div(dstv, src);
+							fpreg(to_integer(unsigned(dst_reg))) <= res;
+							FPSR(27 downto 24) <= classify(res);
+						else done <= '0'; unimpl <= '1'; end if;
 
 					when FPU_FSQRT =>
-						res := fp_sqrt(src);
-						fpreg(to_integer(unsigned(dst_reg))) <= res;
-						FPSR(27 downto 24) <= classify(res);
+						if HW_ARITH = 1 then
+							res := fp_sqrt(src);
+							fpreg(to_integer(unsigned(dst_reg))) <= res;
+							FPSR(27 downto 24) <= classify(res);
+						else done <= '0'; unimpl <= '1'; end if;
 
 					-- memory-operand format conversions (single/double <-> extended)
 					when FPU_LD_S =>
@@ -468,14 +488,18 @@ begin
 						ext_out <= x"0000" & ext_to_double(src);
 
 					when FPU_FCMP =>                    -- CC from FPn - FPm; no write
-						bneg := (not src(79)) & src(78 downto 0);
-						res  := fp_addsub(dstv, bneg);
-						FPSR(27 downto 24) <= classify(res);
+						if HW_ARITH = 1 then
+							bneg := (not src(79)) & src(78 downto 0);
+							res  := fp_addsub(dstv, bneg);
+							FPSR(27 downto 24) <= classify(res);
+						else done <= '0'; unimpl <= '1'; end if;
 
 					when FPU_FINT =>
-						res := fp_int(src);
-						fpreg(to_integer(unsigned(dst_reg))) <= res;
-						FPSR(27 downto 24) <= classify(res);
+						if HW_ARITH = 1 then
+							res := fp_int(src);
+							fpreg(to_integer(unsigned(dst_reg))) <= res;
+							FPSR(27 downto 24) <= classify(res);
+						else done <= '0'; unimpl <= '1'; end if;
 
 					when FPU_TO_CR =>
 						case cr_sel is

@@ -64,6 +64,7 @@ begin
 	-- NOTE: cpu_wrapper must be extended with fpu_fpsr / fpu_present outputs and
 	-- must instantiate fpu_040, driven by the kernel's F-line decode.
 	dut : entity work.cpu_wrapper
+		generic map(HW_ARITH => 1)   -- exercise the HW FPU datapath in sim
 		port map(clk => clk, ce => ce, reset => reset, addr => addr, dout => dout,
 		         din => din, be => be, rw => rw, ts => ts, ta => ta, fc => fc,
 		         ipl => "111", fpu_fpsr => fpu_fpsr, fpu_present => fpu_present);
