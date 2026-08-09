@@ -461,43 +461,50 @@ module dafb #(
 	// (pix_off is the depth-scaled byte offset from the line base).
 	wire [10:0] lb_rword = pix_off[12:2];
 
-	// Scanout byte source: internal block RAM (EXT_VRAM=0) or the active line
-	// buffer (EXT_VRAM=1). These feed the existing Stage-1 registers unchanged.
-	//
-	// CRITICAL for the Cyclone V fit: the line-buffer read lives ONLY inside the
-	// EXT_VRAM!=0 branch. In the default (EXT_VRAM=0) hardware build the two
-	// 2048x32-bit line buffers (linebuf0/linebuf1) then have no reader (this
-	// branch) and no writer (the prefetch FSM body is under `if (EXT_VRAM != 0)`),
-	// so synthesis removes them entirely instead of building a ~2048:1 register
-	// mux (~65k ALUTs). Do NOT read the line buffers combinationally outside this
-	// generate branch, or the arrays are pulled back into logic and the design no
-	// longer fits.
-	wire [7:0] vram_q0, vram_q1, vram_q2, vram_q3;
-	generate
-		if (EXT_VRAM != 0) begin : g_scan_ext
-			reg [31:0] lb_scan_word;
-			always @(*) lb_scan_word = lb_active ? linebuf1[lb_rword]
-			                                     : linebuf0[lb_rword];
-			assign vram_q0 = lb_scan_word[31:24];
-			assign vram_q1 = lb_scan_word[23:16];
-			assign vram_q2 = lb_scan_word[15: 8];
-			assign vram_q3 = lb_scan_word[ 7: 0];
-		end else begin : g_scan_int
-			assign vram_q0 = vram0[pix_word];
-			assign vram_q1 = vram1[pix_word];
-			assign vram_q2 = vram2[pix_word];
-			assign vram_q3 = vram3[pix_word];
-		end
-	endgenerate
-
-	// ---- Stage 1: VRAM read (registered) + pipeline blanks/sync ----
-	reg [7:0] s1_b0, s1_b1, s1_b2, s1_b3;
+	// ---- Stage 1 pipeline registers (declared before the scanout read below) ----
+	reg [7:0] s1_b0, s1_b1, s1_b2, s1_b3;   // the four VRAM lane bytes for this pixel
 	reg       s1_hbl, s1_vbl, s1_hsy, s1_vsy, s1_act;
 	reg [1:0] s1_lane;
 	reg [11:0] s1_x, s1_y, s2_x, s2_y;   // pixel coords pipelined with the data
+
+	// Scanout VRAM read -> Stage-1 lane bytes (s1_b0..3).
+	//
+	// CRITICAL for the Cyclone V fit: this read is SYNCHRONOUS - the address is
+	// combinational but the data is registered directly into s1_b* inside a
+	// clocked block. That lets the four 4096-deep byte-lane VRAMs map to block
+	// RAM (M10K) read ports. An ASYNCHRONOUS read (a `wire = vramN[pix_word]`
+	// feeding a separate register) instead makes Quartus report "RAM logic ...
+	// uninferred due to asynchronous read logic" and duplicate each VRAM into
+	// registers + a 4096:1 combinational mux (~60k ALUTs total) - which overflows
+	// the 5CSEBA6U23I7 (83820 ALUTs). Keep the VRAM/line-buffer read INSIDE this
+	// clocked block. Latency is one ce_pix cycle either way, so the 2-stage pixel
+	// pipeline and all timing are unchanged.
+	generate
+		if (EXT_VRAM != 0) begin : g_scan_ext
+			// External VRAM: source bytes from the active ping-pong line buffer.
+			// (Only built when EXT_VRAM!=0, so it never affects the default fit.)
+			reg [31:0] lb_scan_word;
+			always @(*) lb_scan_word = lb_active ? linebuf1[lb_rword]
+			                                     : linebuf0[lb_rword];
+			always @(posedge clk) if (ce_pix) begin
+				s1_b0 <= lb_scan_word[31:24];
+				s1_b1 <= lb_scan_word[23:16];
+				s1_b2 <= lb_scan_word[15: 8];
+				s1_b3 <= lb_scan_word[ 7: 0];
+			end
+		end else begin : g_scan_int
+			// Internal VRAM: synchronous read from the four block RAMs.
+			always @(posedge clk) if (ce_pix) begin
+				s1_b0 <= vram0[pix_word];
+				s1_b1 <= vram1[pix_word];
+				s1_b2 <= vram2[pix_word];
+				s1_b3 <= vram3[pix_word];
+			end
+		end
+	endgenerate
+
+	// ---- Stage 1: pipeline blanks/sync/coords (lane bytes registered above) ----
 	always @(posedge clk) if (ce_pix) begin
-		s1_b0 <= vram_q0; s1_b1 <= vram_q1;
-		s1_b2 <= vram_q2; s1_b3 <= vram_q3;
 		s1_lane <= pix_lane;
 		s1_hbl <= hbl; s1_vbl <= vbl; s1_hsy <= hsy; s1_vsy <= vsy;
 		s1_act <= h_act & v_act & reg_ctrl[0];
