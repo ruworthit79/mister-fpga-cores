@@ -124,8 +124,12 @@ module boot_core(input clk, input reset);
 	integer stm_dumps = 0;
 	integer n46d = 0;
 	reg [31:0] spin_c = 0; integer acc_cnt = 0; integer nskip = 0;
-	localparam ACCEL_DELAYS = 1'b0;   // sim-only ASC delay skip (surgical, d4@$407118); OPT-IN,
-	                                  // safe but insufficient: boot has ~30+ such delay loops.
+	localparam ACCEL_DELAYS = 1'b1;   // sim-only ASC delay skip (surgical, d4@$407118).
+	                                  // Safe (skips only the wait, not the ASC writes), but
+	                                  // PARTIAL: the ASC init at $407108 is a TRIPLE nest
+	                                  // (D2~5000 x D4~30k x D5~65k) and boot has ~30 more such
+	                                  // real-time delays, so this alone does not reach the
+	                                  // desktop in sim. On 33MHz HW these delays are ms.
 	integer nfb = 0;
 	reg jump_dumped = 0;
 	integer npre = 0;

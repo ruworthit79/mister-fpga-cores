@@ -29,10 +29,38 @@ These are the ROM's normal power-on **real-time delays** (a full ROM checksum,
 serial RTC bit-bang, nested DBF waits). On the 33 MHz FPGA they are
 milliseconds; in cycle-accurate Verilator (~40K cycles/s here) each is minutes,
 and reaching the boot-device search needs hundreds of millions of cycles. **The
-slowness is a simulation artifact, not a core defect.** The next milestones a
-long run watches for are the first RAM-test write and the first SCSI access
-(POST done → boot-device search); a mounted HFS OS 8.1 image is then needed to
-reach the desktop.
+slowness is a simulation artifact, not a core defect.**
+
+### The dominant wall: ASC sound-chip init (verified via the fast harness)
+
+The fast harness (`run_fast.sh`, no `--timing`) with the real ROM **and a
+bootable Mac OS 8.0 "Disk Tools" HFS image mounted on SCSI ch0** confirms POST
+runs on cleanly through: reset → main → high-ROM diagnostic sweep
+(`$40880000`→`$408ae000`, scanning the upper ROM) → **ASC init at `$407108`**.
+Register dumps at the loop show `A0=$50F14000` (ASC base), `A1` walking the ASC
+registers, and a **triple-nested delay**: outer `D2≈5000`, inner `D4≈30000` and
+`D5≈65535` — on the order of **10^9–10^10 cycles for this one POST step**.
+`$50F14000` = ASC; `D4` even carries the ROM checksum `$3DC27823` as a seed.
+
+`boot_core.v` has a **sim-only, surgical delay accelerator** (`ACCEL_DELAYS`,
+now on) that zeroes the `D4` inner delay at `$407118` — provably safe (it skips
+only the wait, not the ASC register writes). It is **partial**: the `D5`/`D2`
+nests here, plus ~30 further real-time delay loops across POST, are not skipped.
+A *general* accelerator can't blindly cap every `DBcc` loop — some (e.g. the ROM
+checksum) compute a value that is later verified, so skipping them would corrupt
+the result and fail POST. Each delay must be confirmed a pure wait before it is
+skipped. That per-loop effort is the remaining work to reach the boot-device
+search **in simulation**; it does not indicate any core defect.
+
+### Bottom line
+
+The core executes the genuine 68040 ROM's power-on sequence correctly, with zero
+bus errors, through multiple real POST phases, with a bootable volume mounted and
+ready on SCSI. Seeing an actual **desktop** is gated by (a) simulation speed vs.
+the ROM's real-time delays — an artifact that vanishes on the 33 MHz FPGA, where
+these waits are milliseconds — and (b) the remaining POST/boot stages after the
+delays. The most credible next proof is **hardware bring-up**, where the delays
+run in real time.
 
 ## Historical (resolved): the identity-scan stall
 
