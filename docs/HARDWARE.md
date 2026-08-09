@@ -9,6 +9,28 @@ retarget is needed.
 > does **not** yet boot to a Macintosh desktop. Flashing it will not give you a
 > usable Mac. It is an engineering bring-up, not a finished emulator.
 
+## Confirmed board silicon (820-0331-A, © 1992) → core module
+
+Verified against photographs of a real Quadra 950 logic board. Each maps to the
+corresponding core module, which is reassurance the chip set and memory map are
+correct ahead of FPGA bring-up:
+
+| Board chip (marking) | Function | Core module |
+|----------------------|----------|-------------|
+| `XC68040RC33E` (Motorola) | 68040 CPU @ 33 MHz | `cpu_wrapper.vhd` + TG68 (item 1) |
+| `343S0104-A` (VLSI/Apple) | DAFB video ASIC | `rtl/video/dafb.sv` (items 6/7) |
+| 8× `MSM482128AJ` (OKI) | 1 MB VRAM (2 MB max) | DAFB VRAM / ext-VRAM path (item 5) |
+| `343S0041`, `343S0106-A` | MCU / IOSB (memory + I/O control) | `rtl/chipset/mcu.sv`, `iobus.sv` |
+| 2× `343S1027`, 2× `CF62928FN` | I/O subsystem: dual SCSI, IOP, SWIM | `scsi_ncr53c96 ×2` (item 10), `swim.sv`/`iop.sv` (item 9) |
+| Zilog Z8530 | SCC serial | SCC model in `iobus.sv` |
+| SONIC + AAUI section | DP83932 Ethernet | `rtl/io/sonic.sv` (item 8) |
+| RTC + ½-AA battery | clock / PRAM | `rtl/chipset/caboose.sv` |
+| 16 SIMM slots (Bank A–D) | RAM to 256 MB | `mcu.sv` RAM sizing (item 4) |
+| 5 NuBus slots + 040 PDS | expansion | NuBus decode in `quadra950.sv` |
+
+The board's own IDs: `820-0331-A QUADRA 950`, ROM checksum `3DC27823` (matches the
+ROM in the boot harness).
+
 ## Prerequisites
 
 - **Quartus Prime 17.0.x Standard** (the MiSTer-standard toolchain; the project
