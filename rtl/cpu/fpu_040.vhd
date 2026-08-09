@@ -60,6 +60,8 @@ architecture rtl of fpu_040 is
 	constant FPU_LD_D     : std_logic_vector(4 downto 0) := "10000";  -- double ->FPn
 	constant FPU_ST_S     : std_logic_vector(4 downto 0) := "10001";  -- FPn -> single
 	constant FPU_ST_D     : std_logic_vector(4 downto 0) := "10010";  -- FPn -> double
+	constant FPU_FCMP     : std_logic_vector(4 downto 0) := "10011";  -- set CC = FPn-FPm
+	constant FPU_FINT     : std_logic_vector(4 downto 0) := "10100";  -- round to integer
 
 	-- control-reg select
 	constant CR_FPCR  : std_logic_vector(2 downto 0) := "001";
@@ -292,6 +294,21 @@ architecture rtl of fpu_040 is
 		return '0' & std_logic_vector(to_unsigned(re, 15)) & std_logic_vector(q);
 	end function;
 
+	-- Round to integral value, round-toward-zero (truncate the fraction).
+	function fp_int(v : std_logic_vector(79 downto 0)) return std_logic_vector is
+		variable e : integer;
+		variable m, mask : unsigned(63 downto 0);
+	begin
+		if is_nan(v) or is_inf(v) or is_zero(v) then return v; end if;
+		e := to_integer(unsigned(v(78 downto 64))) - BIAS;
+		if e >= 63 then return v; end if;                       -- already integral
+		if e < 0  then return v(79) & PZERO(78 downto 0); end if;  -- |v|<1 -> signed 0
+		m    := unsigned(v(63 downto 0));
+		mask := shift_left((to_unsigned(0, 64) - 1), 63 - e);   -- keep top (e+1) bits
+		m    := m and mask;
+		return v(79) & v(78 downto 64) & std_logic_vector(m);
+	end function;
+
 	-- ---- format conversions (single/double <-> extended) ----
 	function single_to_ext(s : std_logic_vector(31 downto 0)) return std_logic_vector is
 		variable e : integer;
@@ -449,6 +466,16 @@ begin
 
 					when FPU_ST_D =>
 						ext_out <= x"0000" & ext_to_double(src);
+
+					when FPU_FCMP =>                    -- CC from FPn - FPm; no write
+						bneg := (not src(79)) & src(78 downto 0);
+						res  := fp_addsub(dstv, bneg);
+						FPSR(27 downto 24) <= classify(res);
+
+					when FPU_FINT =>
+						res := fp_int(src);
+						fpreg(to_integer(unsigned(dst_reg))) <= res;
+						FPSR(27 downto 24) <= classify(res);
 
 					when FPU_TO_CR =>
 						case cr_sel is

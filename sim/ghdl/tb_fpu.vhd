@@ -45,6 +45,8 @@ architecture sim of tb_fpu is
 	constant FPU_LD_D     : std_logic_vector(4 downto 0) := "10000";
 	constant FPU_ST_S     : std_logic_vector(4 downto 0) := "10001";
 	constant FPU_ST_D     : std_logic_vector(4 downto 0) := "10010";
+	constant FPU_FCMP     : std_logic_vector(4 downto 0) := "10011";
+	constant FPU_FINT     : std_logic_vector(4 downto 0) := "10100";
 	constant CR_FPCR      : std_logic_vector(2 downto 0) := "001";
 
 	constant P1   : std_logic_vector(79 downto 0) := x"3FFF8000000000000000";
@@ -188,13 +190,31 @@ begin
 		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_ST_D, "011", "000", "000", ZERO);
 		chk(ext_out(63 downto 0) = x"4004000000000000", "ST ext 2.5 -> double");
 
+		-- ---- FCMP / FINT ----
+		-- FP0=3.0, FP1=2.0; FCMP FP0,FP1 -> CC of (FP1-FP0)=-1 -> N set, no write
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "000", "000", THREE);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "001", "000", TWO);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FCMP, "000", "001", "000", ZERO);
+		chk(fpsr_out(27)='1', "FCMP 2<3 -> N set");
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_ST, "001", "000", "000", ZERO);
+		chk(ext_out = TWO, "FCMP leaves FPn unchanged");
+		-- FCMP equal -> Z set
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "000", "000", TWO);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FCMP, "000", "001", "000", ZERO);
+		chk(fpsr_out(26)='1', "FCMP 2=2 -> Z set");
+		-- FINT 2.5 -> 2.0 (round toward zero)
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_LD, "000", "000", "000", X2_5);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FINT, "000", "001", "000", ZERO);
+		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_FMOVE_ST, "001", "000", "000", ZERO);
+		chk(ext_out = TWO, "FINT 2.5 -> 2.0");
+
 		-- no earlier op raises unimpl, so the latch is still '0' here
 		issue(clk, op_valid, cmd, src_reg, dst_reg, cr_sel, ext_in, FPU_ARITH, "000", "000", "000", ZERO);
 		wait until falling_edge(clk); wait until falling_edge(clk);
 		chk(unimpl_latch = '1', "FADD-class op raises unimpl (FPSP)");
 
 		if errors = 0 then
-			report "PASS: FPU VHDL (FMOVE/FABS/FNEG/FTST, FADD/FSUB/FMUL/FDIV/FSQRT, single/double conv, unimpl)" severity note;
+			report "PASS: FPU VHDL (FMOVE/FABS/FNEG/FTST/FCMP/FINT, FADD/FSUB/FMUL/FDIV/FSQRT, s/d conv)" severity note;
 		else
 			report "FAIL: FPU foundation VHDL" severity failure;
 		end if;
