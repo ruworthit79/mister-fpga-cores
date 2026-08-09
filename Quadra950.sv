@@ -62,8 +62,8 @@ localparam CONF_STR = {
 	"-;",
 	"F0,ROM,Load Quadra 950 ROM;",   // 1 MB Quadra 950 ROM -> ioctl_index 0 (see mcu.sv)
 	"-;",
-	"S0,IMGHDVDSK,Mount SCSI0;",
-	"S1,IMGHDVDSK,Mount SCSI1;",
+	"S0,IMGHDVDSK,Mount SCSI HD;",
+	"S1,ISOIMGHDVDSK,Mount CD-ROM;",
 	"-;",
 	"O[9:8],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[11:10],Screen size,640x480,832x624,1024x768,1152x870;",

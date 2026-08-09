@@ -347,8 +347,9 @@ module quadra950
 	);
 
 	//========================================================================
-	//  SCSI (dual NCR 53C96): channel 0 = internal, channel 1 = external.
-	//  Each drives one hps_io block channel (disk image index 0/1).
+	//  SCSI (dual NCR 53C96): channel 0 = internal hard disk (boot volume),
+	//  channel 1 = external CD-ROM (IS_CDROM: device type 5, 2048-byte blocks,
+	//  READ TOC, read-only). Each drives one hps_io block channel (image 0/1).
 	//========================================================================
 	wire [7:0] scsi0_dout, scsi1_dout;
 	wire       scsi0_ack,  scsi1_ack;
@@ -365,7 +366,7 @@ module quadra950
 		.sd_buff_din(sd_buff_din[0]), .sd_buff_wr(sd_buff_wr), .active(scsi0_act)
 	);
 
-	scsi_ncr53c96 scsi1 (
+	scsi_ncr53c96 #(.IS_CDROM(1)) scsi1 (
 		.clk(clk_sys), .reset(reset),
 		.sel(sel_scsi1 & cpu_ts), .addr(scsi_reg), .din(cpu_dout[31:24]),
 		.dout(scsi1_dout), .rw(cpu_rw), .ack(scsi1_ack), .irq(scsi1_irq),
