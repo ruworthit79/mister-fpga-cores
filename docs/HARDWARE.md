@@ -31,6 +31,22 @@ correct ahead of FPGA bring-up:
 The board's own IDs: `820-0331-A QUADRA 950`, ROM checksum `3DC27823` (matches the
 ROM in the boot harness).
 
+### On the board GALs (address decode is ASIC-internal)
+
+Examined the two board GAL20V8 dumps (from the TheRealBolle/Quadra950 PCB
+recreation): **U30 `341S1059`** and **U35 `341S0828`**. Per the schematic
+(sheet 5) their nets are **reset / interrupt / bus-handshake glue** —
+`/CPURESETIN`, `/CPURESETOUT`, `/IPL0-2`, `/TS`, `/TA`, `/TEA`, `/DSACK0/1`,
+`/IOSEL`, `/MEMRST`/`/NBRST`/`/IORST`/`/ANRST` — around the `343S0106` (JDB)
+chip. They are **not** the device address decode: on the real Q950 the address
+map is implemented **inside the custom ASICs (JDB / IOSB / MCU)**, which is
+exactly why the core models those decodes functionally rather than from glue
+logic. So there is **no board-GAL address-decode to fold in**; the core's decode
+(already validated by the real ROM running its full POST with zero bus errors) is
+as accurate as is obtainable without the ASIC internals. The GAL equations remain
+available if the CPU reset sequencing or `/TA`//`TEA`//`DSACK` bus-termination
+timing ever needs sharpening (the current handshake model already carries boot).
+
 ## Prerequisites
 
 - **Quartus Prime 17.0.x Standard** (the MiSTer-standard toolchain; the project
