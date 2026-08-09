@@ -59,13 +59,18 @@ Verified by `sim/ghdl/tb_fpu.vhd` (in the GHDL suite):
      mantissa multiply, NaN/Inf/Zero special cases; round-toward-zero for now.
      Unit-verified in `sim/ghdl/tb_fpu.vhd` (2+3=5, 5−2=3, 2×3=6) via the new
      `FPU_FADD`/`FPU_FSUB`/`FPU_FMUL` command codes.
-   - **Remaining:** (a) wire those command codes into the kernel's F-line decode
-     (today the kernel still emits the generic `FPU_ARITH` → `unimpl` → FPSP, so
-     real programs run via software until this is connected); (b) FDIV/FSQRT/
-     FCMP/FINT; (c) the other rounding modes + IEEE exception flags; (d) format
-     conversions (single/double ↔ extended). Alternative to hand-building the
-     rest: adapt the reverse-engineered **MC68881 VHDL** core (68881/882-ISA-
-     compatible with the 040 FPU).
+   - **Wired into the CPU:** the kernel's F-line decode now recognizes the
+     register-to-register **FADD ($22) / FSUB ($28) / FMUL ($23)** opmodes and
+     drives the hardware datapath (`FPU_FADD`/`FSUB`/`FMUL` command codes), so
+     the CPU executes them in hardware instead of trapping — verified in
+     `sim/ghdl/tb_cpu_fpu.vhd` (a reg-reg FADD runs with no F-line trap).
+   - **Remaining:** (a) the **memory-operand path** — FMOVE.X `<ea>`↔FPn and
+     mem-operand arithmetic still take the FPSP path (needs the kernel to fetch
+     the operand and drive `ext_in`); (b) FDIV/FSQRT/FCMP/FINT; (c) the other
+     rounding modes + IEEE exception flags (datapath is round-toward-zero today);
+     (d) format conversions (single/double ↔ extended). Alternative to
+     hand-building the rest: adapt the reverse-engineered **MC68881 VHDL** core
+     (68881/882-ISA-compatible with the 040 FPU).
 3. **FPSP trap path (5.3c).** Ensure the transcendentals and packed-decimal
    types trap cleanly to the FPSP already present in the Mac ROM/OS. Mostly the
    `unimpl` path from step 1, plus the correct F-line exception frame.

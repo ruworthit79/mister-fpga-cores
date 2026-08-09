@@ -488,17 +488,26 @@ ALU: TG68K_ALU
 -- Only the register-to-register general form (R/M=0) with a supported opmode
 -- is executed here; everything else takes the F-line trap (via fpu1 below).
 	fpu_opmode <= sndOPC(6 downto 0);
+	-- Only the register-to-register form (R/M = sndOPC(14) = 0) is executed in
+	-- hardware; memory-operand FP ops still fall through to the F-line/FPSP path.
 	fpu_supported <= '1' WHEN sndOPC(15)='0' AND sndOPC(14)='0' AND sndOPC(13)='0'
 	                          AND (fpu_opmode="0000000"      -- $00 FMOVE FPm,FPn
 	                            OR fpu_opmode="0011000"      -- $18 FABS
 	                            OR fpu_opmode="0011010"      -- $1A FNEG
-	                            OR fpu_opmode="0111010")     -- $3A FTST
+	                            OR fpu_opmode="0111010"      -- $3A FTST
+	                            OR fpu_opmode="0100010"      -- $22 FADD
+	                            OR fpu_opmode="0101000"      -- $28 FSUB
+	                            OR fpu_opmode="0100011")     -- $23 FMUL
 	                 ELSE '0';
 	-- FPU command encoding (mirror of fpu_040): FMOVE_RR=1 FABS=4 FNEG=5 FTST=6
+	--   FADD=10 FSUB=11 FMUL=12
 	fpu_cmd <= "00001" WHEN fpu_opmode="0000000" ELSE
 	           "00100" WHEN fpu_opmode="0011000" ELSE
 	           "00101" WHEN fpu_opmode="0011010" ELSE
 	           "00110" WHEN fpu_opmode="0111010" ELSE
+	           "01010" WHEN fpu_opmode="0100010" ELSE   -- FADD
+	           "01011" WHEN fpu_opmode="0101000" ELSE   -- FSUB
+	           "01100" WHEN fpu_opmode="0100011" ELSE   -- FMUL
 	           "00000";
 	fpu_src <= sndOPC(12 downto 10);	-- FPm
 	fpu_dst <= sndOPC(9 downto 7);		-- FPn

@@ -49,12 +49,13 @@ architecture sim of tb_cpu_fpu is
 		16#00# => x"00", 16#01# => x"00", 16#02# => x"10", 16#03# => x"00", -- SSP
 		16#04# => x"00", 16#05# => x"00", 16#06# => x"00", 16#07# => x"08", -- PC
 		16#08# => x"F2", 16#09# => x"00", 16#0A# => x"00", 16#0B# => x"3A", -- FTST FP0
-		16#0C# => x"F2", 16#0D# => x"00", 16#0E# => x"00", 16#0F# => x"1A", -- FNEG FP0
-		16#10# => x"20", 16#11# => x"3C", 16#12# => x"DE", 16#13# => x"AD",
-		16#14# => x"BE", 16#15# => x"EF",                                   -- MOVE.L #$DEADBEEF,D0
-		16#16# => x"23", 16#17# => x"C0", 16#18# => x"00", 16#19# => x"00",
-		16#1A# => x"01", 16#1B# => x"00",                                   -- MOVE.L D0,($100).L
-		16#1C# => x"4E", 16#1D# => x"72", 16#1E# => x"27", 16#1F# => x"00", -- STOP #$2700
+		16#0C# => x"F2", 16#0D# => x"00", 16#0E# => x"00", 16#0F# => x"A2", -- FADD FP0,FP1 (HW)
+		16#10# => x"F2", 16#11# => x"00", 16#12# => x"00", 16#13# => x"1A", -- FNEG FP0
+		16#14# => x"20", 16#15# => x"3C", 16#16# => x"DE", 16#17# => x"AD",
+		16#18# => x"BE", 16#19# => x"EF",                                   -- MOVE.L #$DEADBEEF,D0
+		16#1A# => x"23", 16#1B# => x"C0", 16#1C# => x"00", 16#1D# => x"00",
+		16#1E# => x"01", 16#1F# => x"00",                                   -- MOVE.L D0,($100).L
+		16#20# => x"4E", 16#21# => x"72", 16#22# => x"27", 16#23# => x"00", -- STOP #$2700
 		others => x"00"
 	);
 
@@ -122,7 +123,7 @@ begin
 		chk(fpu_fpsr(27)='1', "FPSR N set (FNEG of zero -> -0)");
 
 		if errors = 0 then
-			report "PASS: CPU executes FPU F-line ops (FTST/FNEG live; FPSR Z/N; no trap)" severity note;
+			report "PASS: CPU executes FPU F-line ops (FTST/FADD/FNEG live; FPSR Z/N; no trap)" severity note;
 		else
 			report "FAIL: CPU/FPU F-line dispatch" severity failure;
 		end if;
