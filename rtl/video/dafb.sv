@@ -460,15 +460,35 @@ module dafb #(
 	// Line-buffer read index for EXT_VRAM scanout: word offset within the line
 	// (pix_off is the depth-scaled byte offset from the line base).
 	wire [10:0] lb_rword = pix_off[12:2];
-	reg  [31:0] lb_scan_word;
-	always @(*) lb_scan_word = lb_active ? linebuf1[lb_rword] : linebuf0[lb_rword];
 
 	// Scanout byte source: internal block RAM (EXT_VRAM=0) or the active line
 	// buffer (EXT_VRAM=1). These feed the existing Stage-1 registers unchanged.
-	wire [7:0] vram_q0 = (EXT_VRAM != 0) ? lb_scan_word[31:24] : vram0[pix_word];
-	wire [7:0] vram_q1 = (EXT_VRAM != 0) ? lb_scan_word[23:16] : vram1[pix_word];
-	wire [7:0] vram_q2 = (EXT_VRAM != 0) ? lb_scan_word[15: 8] : vram2[pix_word];
-	wire [7:0] vram_q3 = (EXT_VRAM != 0) ? lb_scan_word[ 7: 0] : vram3[pix_word];
+	//
+	// CRITICAL for the Cyclone V fit: the line-buffer read lives ONLY inside the
+	// EXT_VRAM!=0 branch. In the default (EXT_VRAM=0) hardware build the two
+	// 2048x32-bit line buffers (linebuf0/linebuf1) then have no reader (this
+	// branch) and no writer (the prefetch FSM body is under `if (EXT_VRAM != 0)`),
+	// so synthesis removes them entirely instead of building a ~2048:1 register
+	// mux (~65k ALUTs). Do NOT read the line buffers combinationally outside this
+	// generate branch, or the arrays are pulled back into logic and the design no
+	// longer fits.
+	wire [7:0] vram_q0, vram_q1, vram_q2, vram_q3;
+	generate
+		if (EXT_VRAM != 0) begin : g_scan_ext
+			reg [31:0] lb_scan_word;
+			always @(*) lb_scan_word = lb_active ? linebuf1[lb_rword]
+			                                     : linebuf0[lb_rword];
+			assign vram_q0 = lb_scan_word[31:24];
+			assign vram_q1 = lb_scan_word[23:16];
+			assign vram_q2 = lb_scan_word[15: 8];
+			assign vram_q3 = lb_scan_word[ 7: 0];
+		end else begin : g_scan_int
+			assign vram_q0 = vram0[pix_word];
+			assign vram_q1 = vram1[pix_word];
+			assign vram_q2 = vram2[pix_word];
+			assign vram_q3 = vram3[pix_word];
+		end
+	endgenerate
 
 	// ---- Stage 1: VRAM read (registered) + pipeline blanks/sync ----
 	reg [7:0] s1_b0, s1_b1, s1_b2, s1_b3;
