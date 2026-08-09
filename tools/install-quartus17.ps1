@@ -1,46 +1,41 @@
 <#
-  install-quartus17.ps1
+  install-quartus17.ps1  (v2)
   ----------------------------------------------------------------------------
   Installs Intel/Altera Quartus Prime LITE 17.0 + Cyclone V device support -
   the exact toolchain the Quadra 950 MiSTer core is built with (matches the
   MiSTer sys/ framework; no project migration, no IP upgrade).
 
-  What it does:
-    1. Downloads the Quartus Lite 17.0 Windows installer + the Cyclone V
-       device file (.qdz) into a folder (tries known URLs; falls back to
-       manual download if they have moved).
-    2. Runs the installer UNATTENDED, installing Quartus + Cyclone V only.
-    3. Sets QUARTUS_ROOTDIR and adds quartus\bin64 to your PATH (user scope).
+  v2 changes:
+    * FINDS an already-downloaded installer anywhere under C:\Users (handles the
+      case where an elevated run downloaded into the Administrator profile).
+    * Correct unattended flags (no --accept_eula; 17.0 auto-accepts in
+      unattended mode). Shows a progress bar (--unattendedmodeui minimal).
+    * Ensures the Cyclone V .qdz sits next to the installer so it's included.
+    * Verifies quartus_sh.exe afterwards and sets QUARTUS_ROOTDIR + PATH.
 
-  Usage (from an elevated "Windows PowerShell" - Run as Administrator):
+  Run in an ADMINISTRATOR PowerShell:
     powershell -ExecutionPolicy Bypass -File .\install-quartus17.ps1
 
   Options:
-    -InstallDir  C:\intelFPGA_lite\17.0      (where Quartus goes)
-    -DownloadDir $HOME\Downloads\quartus17   (where installer files go)
-    -SkipDownload                            (use files already in DownloadDir)
-
-  NOTE: this is ~5-7 GB of download and needs ~12+ GB free disk. It does NOT
-  require an Intel account for the direct-CDN links, but those links can change;
-  if a download fails the script tells you exactly what to grab and where to put
-  it, then re-run with -SkipDownload.
+    -InstallDir     C:\intelFPGA_lite\17.0     (where Quartus goes)
+    -DownloadDir    <profile>\Downloads\quartus17  (where to download if needed)
+    -GUI            run the installer wizard instead of silent (you click through)
+    -ForceDownload  ignore any existing installer and download fresh
   ----------------------------------------------------------------------------
 #>
 [CmdletBinding()]
 param(
   [string]$InstallDir  = "C:\intelFPGA_lite\17.0",
   [string]$DownloadDir = "$env:USERPROFILE\Downloads\quartus17",
-  [switch]$SkipDownload
+  [switch]$GUI,
+  [switch]$ForceDownload
 )
 
 $ErrorActionPreference = "Stop"
-$ProgressPreference    = "SilentlyContinue"   # faster Invoke-WebRequest
+$ProgressPreference    = "SilentlyContinue"
 
-# --- files we need (17.0.0 build 595 = the classic Lite 17.0 release) ---
-$Setup = "QuartusLiteSetup-17.0.0.595-windows.exe"
-$Dev   = "cyclonev-17.0.0.595.qdz"
-
-# candidate CDN URL bases (tried in order; first that serves a large binary wins)
+$SetupName = "QuartusLiteSetup-17.0.0.595-windows.exe"
+$DevName   = "cyclonev-17.0.0.595.qdz"
 $Bases = @(
   "https://downloads.intel.com/akdlm/software/acdsinst/17.0std/595/ib_installers",
   "https://downloads.intel.com/akdlm/software/acdsinst/17.0/595/ib_installers",
@@ -48,81 +43,87 @@ $Bases = @(
 )
 $ManualPage = "https://www.intel.com/content/www/us/en/software-kit/669513/intel-quartus-prime-lite-edition-design-software-version-17-0-for-windows.html"
 
-function Get-File($name) {
-  $dest = Join-Path $DownloadDir $name
-  if ((Test-Path $dest -PathType Leaf) -and ((Get-Item $dest).Length -gt 50MB)) {
-    Write-Host "  already have $name ($([math]::Round((Get-Item $dest).Length/1MB)) MB) - skipping"
-    return $true
+function Find-Big([string]$pattern, [int]$minMB) {
+  $roots = @($DownloadDir, "C:\Users") | Where-Object { Test-Path $_ }
+  foreach ($r in $roots) {
+    $hit = Get-ChildItem $r -Recurse -Filter $pattern -File -EA SilentlyContinue |
+           Where-Object { $_.Length -gt ($minMB * 1MB) } |
+           Sort-Object Length -Descending | Select-Object -First 1
+    if ($hit) { return $hit }
   }
-  foreach ($b in $Bases) {
-    $url = "$b/$name"
-    try {
-      Write-Host "  trying $url"
-      Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 60
-      if ((Get-Item $dest).Length -gt 50MB) { Write-Host "  OK -> $dest"; return $true }
-      Remove-Item $dest -ErrorAction SilentlyContinue   # was an error page
-    } catch { Write-Host "  (failed: $($_.Exception.Message))" }
-  }
-  return $false
+  return $null
 }
 
-Write-Host "=== Quartus Prime Lite 17.0 + Cyclone V installer helper ===" -ForegroundColor Cyan
-New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
+function Download-To([string]$name, [string]$dir) {
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  $dest = Join-Path $dir $name
+  foreach ($b in $Bases) {
+    try {
+      Write-Host "  trying $b/$name"
+      Invoke-WebRequest -Uri "$b/$name" -OutFile $dest -UseBasicParsing -TimeoutSec 60
+      if ((Get-Item $dest).Length -gt 50MB) { return Get-Item $dest }
+      Remove-Item $dest -EA SilentlyContinue
+    } catch { Write-Host "  (failed: $($_.Exception.Message))" }
+  }
+  return $null
+}
 
-if (-not $SkipDownload) {
-  Write-Host "`n[1/3] Downloading (this is several GB)..."
-  $okSetup = Get-File $Setup
-  $okDev   = Get-File $Dev
-  if (-not ($okSetup -and $okDev)) {
-    Write-Warning "`nAutomatic download failed (the CDN links have likely moved)."
-    Write-Host    "Do this instead, then re-run with -SkipDownload:" -ForegroundColor Yellow
-    Write-Host    "  1. Open: $ManualPage"
-    Write-Host    "  2. Download the Windows installer '$Setup'"
-    Write-Host    "     and the Cyclone V device file '$Dev'."
-    Write-Host    "  3. Put BOTH files in: $DownloadDir"
-    Write-Host    "  4. Re-run:  powershell -ExecutionPolicy Bypass -File .\install-quartus17.ps1 -SkipDownload"
+Write-Host "=== Quartus Prime Lite 17.0 + Cyclone V installer (v2) ===" -ForegroundColor Cyan
+
+# --- 1. locate or fetch the setup .exe (~1.6 GB) ---
+$exe = $null
+if (-not $ForceDownload) { $exe = Find-Big $SetupName 1000 }
+if ($exe) { Write-Host ("[1/4] Found installer: {0} ({1} MB)" -f $exe.FullName,[int]($exe.Length/1MB)) }
+else {
+  Write-Host "[1/4] Downloading installer (~1.6 GB)..."
+  $exe = Download-To $SetupName $DownloadDir
+  if (-not $exe) {
+    Write-Warning "Could not download automatically (Intel/Altera moved the links)."
+    Write-Host   "Download '$SetupName' + '$DevName' manually, put BOTH in $DownloadDir, then re-run." -ForegroundColor Yellow
     try { Start-Process $ManualPage } catch {}
     exit 1
   }
+}
+$work = $exe.DirectoryName
+
+# --- 2. make sure the Cyclone V .qdz is next to the .exe ---
+$qdzHere = Join-Path $work $DevName
+if (-not (Test-Path $qdzHere)) {
+  $qdz = Find-Big $DevName 100
+  if ($qdz) { Write-Host "[2/4] Copying Cyclone V device file next to installer"; Copy-Item $qdz.FullName $qdzHere -Force }
+  else {
+    Write-Host "[2/4] Cyclone V .qdz not found; fetching..."
+    $qdz = Download-To $DevName $work
+    if (-not $qdz) { Write-Warning "Cyclone V device file missing - the wizard may not offer Cyclone V. Get '$DevName' into $work and re-run." }
+  }
+} else { Write-Host "[2/4] Cyclone V device file present next to installer." }
+
+# --- 3. install ---
+if ($GUI) {
+  Write-Host "[3/4] Launching the installer WIZARD - click through it."
+  Write-Host "      Set dir to $InstallDir and CHECK 'Cyclone V' on the devices page."
+  Start-Process -FilePath $exe.FullName -WorkingDirectory $work -Wait
 } else {
-  Write-Host "`n[1/3] -SkipDownload set; using files in $DownloadDir"
+  Write-Host "[3/4] Installing unattended into $InstallDir (progress bar appears; be patient)..."
+  $p = Start-Process -FilePath $exe.FullName -WorkingDirectory $work `
+        -ArgumentList "--mode unattended --unattendedmodeui minimal --installdir `"$InstallDir`"" -Wait -PassThru
+  Write-Host "      installer exit code: $($p.ExitCode)"
 }
 
-$setupPath = Join-Path $DownloadDir $Setup
-$devPath   = Join-Path $DownloadDir $Dev
-foreach ($f in @($setupPath, $devPath)) {
-  if (-not (Test-Path $f)) { Write-Error "Missing $f - download it (see above) and re-run with -SkipDownload"; exit 1 }
-}
-# The unattended installer picks up device .qdz files that sit next to setup.exe,
-# so both being in $DownloadDir is what we want.
-
-Write-Host "`n[2/3] Installing Quartus Lite 17.0 + Cyclone V (unattended)..."
-Write-Host "      target: $InstallDir  (this takes a while; a small progress bar will show)"
-# Quartus 17.0 uses an InstallBuilder setup: unattended mode implies license
-# acceptance (there is no --accept_eula). 'minimal' UI shows a progress bar.
-$args = "--mode unattended --unattendedmodeui minimal --installdir `"$InstallDir`""
-$p = Start-Process -FilePath $setupPath -ArgumentList $args -Wait -PassThru
-if ($p.ExitCode -ne 0) { Write-Error "Installer exited with code $($p.ExitCode)."; exit 1 }
-
-Write-Host "`n[3/3] Setting environment (QUARTUS_ROOTDIR + PATH, user scope)..."
+# --- 4. verify + set environment ---
 $qroot = Join-Path $InstallDir "quartus"
 $bin   = Join-Path $qroot "bin64"
-[Environment]::SetEnvironmentVariable("QUARTUS_ROOTDIR", $qroot, "User")
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($userPath -notlike "*$bin*") {
-  [Environment]::SetEnvironmentVariable("Path", "$userPath;$bin", "User")
-}
-
-$sh = Join-Path $bin "quartus_sh.exe"
-Write-Host ""
+$sh    = Join-Path $bin "quartus_sh.exe"
 if (Test-Path $sh) {
-  Write-Host "SUCCESS: Quartus is at $qroot" -ForegroundColor Green
-  Write-Host "         quartus_sh: $sh"
-  Write-Host ""
-  Write-Host "Next (open a NEW terminal so PATH refreshes):" -ForegroundColor Cyan
-  Write-Host "  cd <your clone of mister-fpga-cores>"
-  Write-Host "  build.bat            # -> output_files\Quadra950.rbf"
+  [Environment]::SetEnvironmentVariable("QUARTUS_ROOTDIR", $qroot, "User")
+  $up = [Environment]::GetEnvironmentVariable("Path","User")
+  if ($up -notlike "*$bin*") { [Environment]::SetEnvironmentVariable("Path", "$up;$bin", "User") }
+  Write-Host "`n[4/4] SUCCESS - Quartus at $qroot" -ForegroundColor Green
+  Write-Host "      QUARTUS_ROOTDIR + PATH set (user scope)."
+  Write-Host "`nNext: open a NEW terminal, cd to your mister-fpga-cores clone, run:  build.bat" -ForegroundColor Cyan
 } else {
-  Write-Warning "Install finished but quartus_sh not found at $sh."
-  Write-Warning "Check the install log / that Cyclone V was included, or open the GUI once."
+  Write-Warning "`n[4/4] quartus_sh not found at $sh - the install did not complete."
+  Write-Host   "Try the wizard so you can watch it and confirm Cyclone V is checked:" -ForegroundColor Yellow
+  Write-Host   "  powershell -ExecutionPolicy Bypass -File .\install-quartus17.ps1 -GUI"
+  exit 1
 }
