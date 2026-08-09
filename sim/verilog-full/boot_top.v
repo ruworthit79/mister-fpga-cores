@@ -127,11 +127,24 @@ module boot_top;
 	reg vbl_d = 0;
 	always @(posedge clk) begin vbl_d <= VBlank; if (VBlank && !vbl_d) nvbl <= nvbl + 1; end
 
+	// diagnostic: track the highest RAM byte address the CPU reads, and whether
+	// the current activity is reading ROM vs RAM (to characterize a stuck loop).
+	reg [28:0] ram_hi = 0;
+	reg [28:0] last_rd = 0;
+	always @(posedge clk) if (DDRAM_RD) begin
+		last_rd <= DDRAM_ADDR;
+		if (!in_rom && DDRAM_ADDR > ram_hi) ram_hi <= DDRAM_ADDR;
+	end
+
 	initial begin
 		$readmemh("rom64.hex", rom_ddr);
 		for (i = 0; i < 1048576; i = i + 1) ram_ddr[i] = 0;
 		repeat (20) @(posedge clk); #1 reset = 0;
-		repeat (4000000) @(posedge clk);
+		for (i = 0; i < 60; i = i + 1) begin
+			repeat (1000000) @(posedge clk);
+			$display("[hb %0d M] fetches=%0d last_pc=%08x frames=%0d ram_hi=%08x last_rd=%08x berr=%0d",
+				i+1, nfetch, last_pc, nvbl, ram_hi, last_rd, nberr);
+		end
 		$display("=== stopped: %0d fetches, last PC=%08x, frames=%0d, drew=%b, io_logged=%0d, berr=%0d ===",
 			nfetch, last_pc, nvbl, drew, niolog, nberr);
 		$finish;
