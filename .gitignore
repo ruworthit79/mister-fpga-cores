@@ -37,10 +37,16 @@ sim/iverilog/tb_mcu
 # GHDL work library anywhere
 work-obj*.cf
 
-# Never commit ROM dumps (copyrighted firmware)
+# Never commit ROM dumps or OS media (copyrighted)
 *.rom
 *.ROM
 *.bin
+*.img
+*.hfv
+*.dsk
+*.iso
+*.toast
+*.7z
 
 # GHDL->Verilog CPU netlist (generated)
 sim/verilog-full/cpu_synth.v
@@ -50,7 +56,9 @@ sim/verilog-full/*.log
 sim/verilog-full/obj_dir/
 sim/verilog-full/boot_sim
 sim/verilog-full/boot_full
+sim/verilog-full/boot_fast
 sim/verilog-full/rom*.hex
+sim/verilog-full/disk.hex
 
 # Claude Code agent worktrees (transient, harness-managed)
 .claude/
