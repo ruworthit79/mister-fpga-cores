@@ -136,14 +136,30 @@ module boot_top;
 		if (!in_rom && DDRAM_ADDR > ram_hi) ram_hi <= DDRAM_ADDR;
 	end
 
+	// boot-milestone detection: the first RAM-test write (POST reached RAM), and
+	// the first SCSI access (POST finished -> searching for a boot device).
+	reg ram_wr_seen = 0, scsi_seen = 0;
+	reg [28:0] ram_wr_hi = 0;
+	always @(posedge clk) begin
+		if (DDRAM_WE && !in_rom) begin
+			if (DDRAM_ADDR > ram_wr_hi) ram_wr_hi <= DDRAM_ADDR;
+			if (!ram_wr_seen) begin ram_wr_seen <= 1;
+				$display("[%0t] >>> MILESTONE: first RAM write (addr=%08x) - RAM test/use begun", $time, DDRAM_ADDR); end
+		end
+		if (dut.cpu_ts && (dut.cpu_addr[31:12] == 20'h50F10 || dut.cpu_addr[31:12] == 20'h50F12) && !scsi_seen) begin
+			scsi_seen <= 1;
+			$display("[%0t] >>> MILESTONE: first SCSI access (addr=%08x) - POST done, boot-device search!", $time, dut.cpu_addr);
+		end
+	end
+
 	initial begin
 		$readmemh("rom64.hex", rom_ddr);
 		for (i = 0; i < 1048576; i = i + 1) ram_ddr[i] = 0;
 		repeat (20) @(posedge clk); #1 reset = 0;
-		for (i = 0; i < 60; i = i + 1) begin
-			repeat (1000000) @(posedge clk);
-			$display("[hb %0d M] fetches=%0d last_pc=%08x frames=%0d ram_hi=%08x last_rd=%08x berr=%0d",
-				i+1, nfetch, last_pc, nvbl, ram_hi, last_rd, nberr);
+		for (i = 0; i < 600; i = i + 1) begin
+			repeat (5000000) @(posedge clk);
+			$display("[hb %0d M] fetches=%0d last_pc=%08x frames=%0d ram_hi=%08x ram_wr_hi=%08x scsi=%b berr=%0d",
+				(i+1)*5, nfetch, last_pc, nvbl, ram_hi, ram_wr_hi, scsi_seen, nberr);
 		end
 		$display("=== stopped: %0d fetches, last PC=%08x, frames=%0d, drew=%b, io_logged=%0d, berr=%0d ===",
 			nfetch, last_pc, nvbl, drew, niolog, nberr);

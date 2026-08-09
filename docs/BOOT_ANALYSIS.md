@@ -5,13 +5,42 @@ Verilator harness (`sim/verilog-full/boot_top.v`), reverse-engineered from the
 ROM itself with a Capstone m68k disassembler. It is the single source of truth
 for "what does the ROM need next to boot further."
 
-## Summary
+## Current status (full-system run against the real `3DC27823` ROM)
 
-Boot is **deterministic** and stops in the ROM's **universal machine
-identification** ("DecoderInfo" / box-ID) scan. The CPU is healthy: reset
-vector, overlay clear, and VIA bring-up all succeed with **zero exceptions**.
-The stall is not a CPU bug and not a hang — it is an *infinite retry* of the
-identity probe because the machine never recognizes itself as a Quadra 950.
+**Boot runs cleanly through POST; the only wall is simulation speed.** With the
+real 1 MB Quadra 950 ROM loaded into the full core (`run_full.sh`), a 60M-cycle
+trace shows:
+
+- **Zero bus errors, zero stalls** across ~4.7M instruction fetches — every
+  device the ROM probes (VIA1/VIA2 + high aliases, SCC, ASC, RTC, NuBus space)
+  responds; nothing bus-errors.
+- POST advances through recognizable phases (verified by disassembling the ROM
+  at each parked PC):
+  1. VIA alias detection (`$51001C00` = VIA1 IER +$100000), VIA1/VIA2 init
+  2. **ROM self-checksum** — a word-sum loop at ROM `$47516` (`MOVE.W (A0)+ /
+     ADD.L / SUBQ #2 / BNE`), reading ROM (`last_rd=$100475xx`, `ram_hi=0`).
+     Takes ~24M sim cycles, then **completes and continues** (not a hang).
+  3. VIA interrupt setup (`$50F01C00`), then a **nested `DBF` timed-delay loop**
+     at ROM `$47116` (`TST.B (A5) / DBF D4 / DBF D5`) — a calibrated real-time
+     wait.
+- 71 video frames generated; `drew=0` (OS hasn't set up the framebuffer yet).
+
+These are the ROM's normal power-on **real-time delays** (a full ROM checksum,
+serial RTC bit-bang, nested DBF waits). On the 33 MHz FPGA they are
+milliseconds; in cycle-accurate Verilator (~40K cycles/s here) each is minutes,
+and reaching the boot-device search needs hundreds of millions of cycles. **The
+slowness is a simulation artifact, not a core defect.** The next milestones a
+long run watches for are the first RAM-test write and the first SCSI access
+(POST done → boot-device search); a mounted HFS OS 8.1 image is then needed to
+reach the desktop.
+
+## Historical (resolved): the identity-scan stall
+
+An earlier build stopped in the ROM's **universal machine identification**
+("DecoderInfo" / box-ID) scan — an *infinite retry* because the machine never
+recognized itself. That has since been cleared (VIA port-A input fix, box-ID
+handling); the current run progresses well past it into the checksum/delay
+phases above. The analysis below is kept for reference.
 
 ```
 reset ─► $8C ─► main $4052 ─► … ─► identity scan  ◄──────────┐
