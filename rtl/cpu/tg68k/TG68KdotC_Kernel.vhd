@@ -497,7 +497,9 @@ ALU: TG68K_ALU
 	                            OR fpu_opmode="0111010"      -- $3A FTST
 	                            OR fpu_opmode="0100010"      -- $22 FADD
 	                            OR fpu_opmode="0101000"      -- $28 FSUB
-	                            OR fpu_opmode="0100011")     -- $23 FMUL
+	                            OR fpu_opmode="0100011"      -- $23 FMUL
+	                            OR fpu_opmode="0100000"      -- $20 FDIV
+	                            OR fpu_opmode="0000100")     -- $04 FSQRT
 	                 ELSE '0';
 	-- FPU command encoding (mirror of fpu_040): FMOVE_RR=1 FABS=4 FNEG=5 FTST=6
 	--   FADD=10 FSUB=11 FMUL=12
@@ -508,6 +510,8 @@ ALU: TG68K_ALU
 	           "01010" WHEN fpu_opmode="0100010" ELSE   -- FADD
 	           "01011" WHEN fpu_opmode="0101000" ELSE   -- FSUB
 	           "01100" WHEN fpu_opmode="0100011" ELSE   -- FMUL
+	           "01101" WHEN fpu_opmode="0100000" ELSE   -- FDIV
+	           "01110" WHEN fpu_opmode="0000100" ELSE   -- FSQRT
 	           "00000";
 	fpu_src <= sndOPC(12 downto 10);	-- FPm
 	fpu_dst <= sndOPC(9 downto 7);		-- FPn

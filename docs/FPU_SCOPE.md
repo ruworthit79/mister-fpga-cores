@@ -59,18 +59,22 @@ Verified by `sim/ghdl/tb_fpu.vhd` (in the GHDL suite):
      mantissa multiply, NaN/Inf/Zero special cases; round-toward-zero for now.
      Unit-verified in `sim/ghdl/tb_fpu.vhd` (2+3=5, 5−2=3, 2×3=6) via the new
      `FPU_FADD`/`FPU_FSUB`/`FPU_FMUL` command codes.
-   - **Wired into the CPU:** the kernel's F-line decode now recognizes the
-     register-to-register **FADD ($22) / FSUB ($28) / FMUL ($23)** opmodes and
-     drives the hardware datapath (`FPU_FADD`/`FSUB`/`FMUL` command codes), so
-     the CPU executes them in hardware instead of trapping — verified in
-     `sim/ghdl/tb_cpu_fpu.vhd` (a reg-reg FADD runs with no F-line trap).
-   - **Remaining:** (a) the **memory-operand path** — FMOVE.X `<ea>`↔FPn and
-     mem-operand arithmetic still take the FPSP path (needs the kernel to fetch
-     the operand and drive `ext_in`); (b) FDIV/FSQRT/FCMP/FINT; (c) the other
-     rounding modes + IEEE exception flags (datapath is round-toward-zero today);
-     (d) format conversions (single/double ↔ extended). Alternative to
-     hand-building the rest: adapt the reverse-engineered **MC68881 VHDL** core
-     (68881/882-ISA-compatible with the 040 FPU).
+   - **Wired into the CPU:** the kernel's F-line decode recognizes the
+     register-to-register **FADD ($22) / FSUB ($28) / FMUL ($23) / FDIV ($20) /
+     FSQRT ($04)** opmodes and drives the hardware datapath, so the CPU executes
+     them in hardware instead of trapping — verified in `sim/ghdl/tb_cpu_fpu.vhd`
+     (a reg-reg FADD runs with no F-line trap) and `sim/ghdl/tb_fpu.vhd`
+     (6/2=3, √4=2, √9=3 on the unit).
+   - **Format conversions implemented:** single↔extended and double↔extended
+     (`single_to_ext`/`double_to_ext`/`ext_to_single`/`ext_to_double`, command
+     codes `FPU_LD_S/LD_D/ST_S/ST_D`), unit-verified with 2.5 round-trips. These
+     are the building blocks the memory-operand FMOVE needs.
+   - **Remaining:** (a) the **memory-operand path** — wire the conversions into
+     the kernel so FMOVE.X/S/D `<ea>`↔FPn fetches/stores the operand and drives
+     `ext_in`/consumes `ext_out` (the FPU side is done; the kernel EA fetch is
+     not); (b) FCMP/FINT; (c) the other rounding modes + IEEE exception flags
+     (datapath is round-toward-zero today). Alternative to hand-building the rest:
+     adapt the reverse-engineered **MC68881 VHDL** core.
 3. **FPSP trap path (5.3c).** Ensure the transcendentals and packed-decimal
    types trap cleanly to the FPSP already present in the Mac ROM/OS. Mostly the
    `unimpl` path from step 1, plus the correct F-line exception frame.
