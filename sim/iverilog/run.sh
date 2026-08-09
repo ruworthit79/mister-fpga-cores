@@ -22,3 +22,4 @@ run tb_scsi    ../../rtl/io/scsi_ncr53c96.sv      tb_scsi.v
 run tb_asc     ../../rtl/audio/asc.sv             tb_asc.v
 run tb_sonic   ../../rtl/io/sonic.sv              tb_sonic.v
 run tb_swim    ../../rtl/io/swim.sv               tb_swim.v
+run tb_cache   ../../rtl/cpu/cache_040.sv         tb_cache.v
