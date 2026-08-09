@@ -28,6 +28,28 @@
 //
 //  Verified in sim/iverilog/tb_dafb.v (8bpp) and tb_dafb_modes.v (timing,
 //  programmable CRTC, 16/32 bpp direct-colour scanout).
+//
+//  ---- External VRAM path (parameter EXT_VRAM, OFF BY DEFAULT) --------------
+//  EXT_VRAM=0 (default): VRAM is the four internal byte-lane block RAMs above
+//  and scanout reads them combinationally. Behaviour is exactly as described
+//  above; the vram_* ports are driven to 0 and unused.
+//
+//  EXT_VRAM=1: VRAM lives in large off-chip memory (the board's SDRAM, up to
+//  2 MB - item 5 of docs/TARGET_SPEC.md) reached through the vram_* port. Two
+//  things change while the 2-stage pixel pipeline and all 8/16/32 bpp colour
+//  logic stay identical:
+//    * CPU VRAM-aperture (0x80_0000) reads/writes are forwarded to the external
+//      port (vram_rd/vram_wr/vram_addr/vram_wdata/vram_wbe -> vram_rdata/
+//      vram_rvalid, gated by vram_ready); register and CLUT accesses stay
+//      internal. `ack` is held until the external transaction completes.
+//    * Scanout is decoupled from memory latency by a PING-PONG LINE BUFFER
+//      (two 2048x32-bit buffers). While the CRTC scans the active buffer, the
+//      next visible line is prefetched from VRAM into the inactive buffer with
+//      sequential vram_rd bursts; the buffers swap at end of line. Line 0 is
+//      prefetched during vblank. The per-pixel pipeline sources its four lane
+//      bytes (vram_q0..q3) from the active line buffer instead of the block
+//      RAMs - the only change to the scanout datapath.
+//  Verified in sim/iverilog/tb_dafb_vram.v (behavioural external VRAM model).
 //============================================================================
 
 module dafb #(
@@ -36,7 +58,10 @@ module dafb #(
 	// otherwise the CRTC timing comes from `vmode` (real Apple resolutions).
 	parameter TESTTIMING = 0,
 	parameter H_ACT = 640, H_FP = 16, H_SY = 96, H_BP = 48,
-	parameter V_ACT = 480, V_FP = 10, V_SY = 2,  V_BP = 33
+	parameter V_ACT = 480, V_FP = 10, V_SY = 2,  V_BP = 33,
+	// EXT_VRAM=0: internal block-RAM VRAM (default, unchanged behaviour).
+	// EXT_VRAM=1: VRAM in external memory via the vram_* port + line buffer.
+	parameter EXT_VRAM = 0
 )
 (
 	input             clk,
@@ -63,7 +88,17 @@ module dafb #(
 	output reg [7:0]  g,
 	output reg [7:0]  b,
 
-	output            vbl_irq      // vertical-blank interrupt (level)
+	output            vbl_irq,     // vertical-blank interrupt (level)
+
+	// External VRAM port (only driven/used when EXT_VRAM=1; safe 0s otherwise).
+	output reg        vram_rd,     // read request (1-cycle strobe)
+	output reg        vram_wr,     // write request (1-cycle strobe)
+	output reg [22:0] vram_addr,   // byte address into VRAM (2 MB)
+	output reg [31:0] vram_wdata,
+	output reg [3:0]  vram_wbe,
+	input      [31:0] vram_rdata,
+	input             vram_rvalid, // read data valid (1-cycle)
+	input             vram_ready   // request accepted / can issue
 );
 
 	localparam AW = $clog2(VRAM_WORDS);
@@ -96,6 +131,28 @@ module dafb #(
 	// ---- CLUT ----
 	reg [23:0] clut [0:255];
 
+	// ---- External VRAM path (EXT_VRAM=1): ping-pong line buffers + handshake --
+	// Two line buffers sized for the widest mode (2048 x 32-bit each, ~8 KB).
+	// One is read by scanout (active) while the next visible line is prefetched
+	// into the other (inactive); they swap at end of line.
+	localparam LBW = 2048;
+	reg [31:0] linebuf0 [0:LBW-1];
+	reg [31:0] linebuf1 [0:LBW-1];
+	reg        lb_active;                  // buffer scanout currently reads
+	reg [23:0] lb_base0, lb_base1;         // VRAM line base held in each buffer
+	reg        lb_valid0, lb_valid1;
+
+	// CPU <-> external-port handshake (CPU VRAM aperture goes off-chip).
+	reg        cpu_vreq;                   // a CPU VRAM access awaits completion
+	reg        cpu_vwr;                    // latched: 1=write 0=read
+	reg [22:0] cpu_vaddr;
+	reg [31:0] cpu_vwdata;
+	reg [3:0]  cpu_vwbe;
+	reg        cpu_vdone;                  // ext port -> CPU: complete (pulse)
+	reg [31:0] cpu_vrdata;                 // ext port -> CPU: read data
+	reg        cfg_wr;                     // pulse: a control register was written
+	reg        sel_d;                      // for CPU-access rising-edge detect
+
 	// ================= CPU port =================
 	wire cpu_wr = sel & ~rw;
 	always @(posedge clk) begin
@@ -108,12 +165,16 @@ module dafb #(
 			reg_pixdiv <= 8'd0;        // clk/2 default
 			cr_htot<=12'd800; cr_hss<=12'd656; cr_hse<=12'd752; cr_hact<=12'd640;
 			cr_vtot<=12'd525; cr_vss<=12'd490; cr_vse<=12'd492; cr_vact<=12'd480;
+			cpu_vreq <= 1'b0; sel_d <= 1'b0; cfg_wr <= 1'b0;
 		end else begin
-			ack <= 1'b0;
+			ack    <= 1'b0;
+			cfg_wr <= 1'b0;
+			sel_d  <= sel;
 
 			// writes
 			if (cpu_wr) begin
 				if (is_reg) begin
+					cfg_wr <= 1'b1;    // any register write invalidates the line buffers
 					case (addr[7:2])
 						6'h00: reg_ctrl   <= din[7:0];
 						6'h01: reg_base   <= din[23:0];
@@ -132,7 +193,7 @@ module dafb #(
 					endcase
 				end else if (is_clut) begin
 					clut[clut_idx] <= din[23:0];
-				end else if (is_vram) begin
+				end else if (is_vram && (EXT_VRAM == 0)) begin
 					if (be[3]) vram0[cpu_word] <= din[31:24];
 					if (be[2]) vram1[cpu_word] <= din[23:16];
 					if (be[1]) vram2[cpu_word] <= din[15:8];
@@ -159,10 +220,29 @@ module dafb #(
 				endcase
 			else if (is_clut)
 				dout <= {8'd0, clut[clut_idx]};
-			else
+			else if (EXT_VRAM == 0)
 				dout <= {vram0[cpu_word], vram1[cpu_word], vram2[cpu_word], vram3[cpu_word]};
+			// (EXT_VRAM: VRAM read data is captured on cpu_vdone below)
 
-			if (sel && !ack) ack <= 1'b1;
+			// ---- acknowledge / external-VRAM handshake ----
+			if ((EXT_VRAM != 0) && is_vram) begin
+				// Kick off one external transaction on the rising edge of sel;
+				// hold ack off until the external port signals completion.
+				if (sel && !sel_d) begin
+					cpu_vreq   <= 1'b1;
+					cpu_vwr    <= cpu_wr;
+					cpu_vaddr  <= addr[22:0];
+					cpu_vwdata <= din;
+					cpu_vwbe   <= be;
+				end
+				if (cpu_vdone) begin
+					cpu_vreq <= 1'b0;
+					if (!cpu_vwr) dout <= cpu_vrdata;
+					ack <= 1'b1;
+				end
+			end else begin
+				if (sel && !ack) ack <= 1'b1;
+			end
 		end
 	end
 
@@ -249,6 +329,126 @@ module dafb #(
 		end
 	end
 
+	// ================= External VRAM: line-buffer prefetch =================
+	// End-of-line pulse (drives the ping-pong swap).
+	wire line_end = ce_pix && (hc == H_TOT-1);
+
+	// Base address of the NEXT line to display: the following visible line while
+	// active, else line 0 (reg_base) on the last visible line and through vblank
+	// so line 0 is prefetched during vblank and ready when the frame starts.
+	wire [23:0] need_base = (v_act && (vc != V_ACTs-1)) ? (line_base + {8'd0, reg_stride})
+	                                                    : reg_base;
+
+	// 32-bit words needed to cover one line at the current depth.
+	wire [11:0] pf_words_w = (reg_depth == 2'd2) ? H_ACTs :                 // 32bpp: 1 px/word
+	                         (reg_depth == 2'd1) ? ((H_ACTs + 12'd1) >> 1) : // 16bpp: 2 px/word
+	                                               ((H_ACTs + 12'd3) >> 2);  // 8bpp:  4 px/word
+
+	// Base/valid of the inactive (prefetch-target) buffer.
+	wire [23:0] inact_base  = lb_active ? lb_base0  : lb_base1;
+	wire        inact_valid = lb_active ? lb_valid0 : lb_valid1;
+	wire        pf_needed   = (EXT_VRAM != 0) && reg_ctrl[0] &&
+	                          (!inact_valid || (inact_base != need_base));
+
+	localparam FB_IDLE = 2'd0, FB_CWR = 2'd1, FB_CRD = 2'd2, FB_PFRD = 2'd3;
+	reg [1:0]  fbst;
+	reg        pf_wait;       // a prefetch read is outstanding
+	reg        pf_bank;       // destination buffer for the current prefetch
+	reg [23:0] pf_base;       // line base being prefetched
+	reg [22:0] pf_addr;       // current read address
+	reg [11:0] pf_words, pf_cnt;
+	reg [10:0] pf_widx;       // write index into the line buffer
+
+	always @(posedge clk) begin
+		if (reset) begin
+			vram_rd <= 1'b0; vram_wr <= 1'b0; vram_addr <= 23'd0;
+			vram_wdata <= 32'd0; vram_wbe <= 4'd0;
+			cpu_vdone <= 1'b0; cpu_vrdata <= 32'd0;
+			fbst <= FB_IDLE; pf_wait <= 1'b0; pf_bank <= 1'b0;
+			pf_base <= 24'd0; pf_addr <= 23'd0;
+			pf_words <= 12'd0; pf_cnt <= 12'd0; pf_widx <= 11'd0;
+			lb_active <= 1'b0;
+			lb_base0 <= 24'hFFFFFF; lb_base1 <= 24'hFFFFFF;
+			lb_valid0 <= 1'b0; lb_valid1 <= 1'b0;
+		end else begin
+			vram_rd <= 1'b0; vram_wr <= 1'b0; cpu_vdone <= 1'b0;  // 1-cycle strobes
+
+			if (EXT_VRAM != 0) begin
+				// Ping-pong swap at end of each scanline.
+				if (line_end) lb_active <= ~lb_active;
+
+				case (fbst)
+				FB_IDLE: begin
+					if (cpu_vreq) begin                     // CPU access has priority
+						if (cpu_vwr) begin
+							if (vram_ready) begin
+								vram_wr    <= 1'b1;
+								vram_addr  <= cpu_vaddr;
+								vram_wdata <= cpu_vwdata;
+								vram_wbe   <= cpu_vwbe;
+								fbst       <= FB_CWR;
+							end
+						end else if (vram_ready) begin
+							vram_rd   <= 1'b1;
+							vram_addr <= cpu_vaddr;
+							fbst      <= FB_CRD;
+						end
+					end else if (pf_needed) begin           // prefetch next line
+						pf_bank  <= ~lb_active;
+						pf_base  <= need_base;
+						pf_addr  <= need_base[22:0];
+						pf_words <= pf_words_w;
+						pf_cnt   <= 12'd0;
+						pf_widx  <= 11'd0;
+						pf_wait  <= 1'b0;
+						fbst     <= FB_PFRD;
+					end
+				end
+
+				FB_CWR: begin                               // write accepted last cycle
+					cpu_vdone <= 1'b1;
+					fbst      <= FB_IDLE;
+				end
+
+				FB_CRD: begin
+					if (vram_rvalid) begin
+						cpu_vrdata <= vram_rdata;
+						cpu_vdone  <= 1'b1;
+						fbst       <= FB_IDLE;
+					end
+				end
+
+				FB_PFRD: begin
+					if (!pf_wait) begin
+						if (pf_cnt == pf_words) begin       // whole line fetched
+							if (pf_bank) begin lb_base1 <= pf_base; lb_valid1 <= 1'b1; end
+							else         begin lb_base0 <= pf_base; lb_valid0 <= 1'b1; end
+							fbst <= FB_IDLE;
+						end else if (cpu_vreq) begin        // let a CPU access preempt
+							fbst <= FB_IDLE;                //  (prefetch restarts after)
+						end else if (vram_ready) begin
+							vram_rd   <= 1'b1;
+							vram_addr <= pf_addr;
+							pf_wait   <= 1'b1;
+						end
+					end else if (vram_rvalid) begin
+						if (pf_bank) linebuf1[pf_widx] <= vram_rdata;
+						else         linebuf0[pf_widx] <= vram_rdata;
+						pf_widx <= pf_widx + 11'd1;
+						pf_addr <= pf_addr + 23'd4;
+						pf_cnt  <= pf_cnt  + 12'd1;
+						pf_wait <= 1'b0;
+					end
+				end
+				endcase
+
+				// A control-register write invalidates both buffers so the new
+				// base/stride/depth is re-fetched (overrides a same-cycle load).
+				if (cfg_wr) begin lb_valid0 <= 1'b0; lb_valid1 <= 1'b0; end
+			end
+		end
+	end
+
 	// Bytes per pixel from the depth register: 8bpp=1, 16bpp=2, 32bpp=4.
 	wire [23:0] pix_off  = (reg_depth == 2'd2) ? {10'd0, hc, 2'b00} :  // *4 (32bpp)
 	                       (reg_depth == 2'd1) ? {11'd0, hc, 1'b0}  :  // *2 (16bpp)
@@ -257,14 +457,27 @@ module dafb #(
 	wire [AW-1:0] pix_word = pix_byte[AW+1:2];
 	wire [1:0]    pix_lane = pix_byte[1:0];
 
+	// Line-buffer read index for EXT_VRAM scanout: word offset within the line
+	// (pix_off is the depth-scaled byte offset from the line base).
+	wire [10:0] lb_rword = pix_off[12:2];
+	reg  [31:0] lb_scan_word;
+	always @(*) lb_scan_word = lb_active ? linebuf1[lb_rword] : linebuf0[lb_rword];
+
+	// Scanout byte source: internal block RAM (EXT_VRAM=0) or the active line
+	// buffer (EXT_VRAM=1). These feed the existing Stage-1 registers unchanged.
+	wire [7:0] vram_q0 = (EXT_VRAM != 0) ? lb_scan_word[31:24] : vram0[pix_word];
+	wire [7:0] vram_q1 = (EXT_VRAM != 0) ? lb_scan_word[23:16] : vram1[pix_word];
+	wire [7:0] vram_q2 = (EXT_VRAM != 0) ? lb_scan_word[15: 8] : vram2[pix_word];
+	wire [7:0] vram_q3 = (EXT_VRAM != 0) ? lb_scan_word[ 7: 0] : vram3[pix_word];
+
 	// ---- Stage 1: VRAM read (registered) + pipeline blanks/sync ----
 	reg [7:0] s1_b0, s1_b1, s1_b2, s1_b3;
 	reg       s1_hbl, s1_vbl, s1_hsy, s1_vsy, s1_act;
 	reg [1:0] s1_lane;
 	reg [11:0] s1_x, s1_y, s2_x, s2_y;   // pixel coords pipelined with the data
 	always @(posedge clk) if (ce_pix) begin
-		s1_b0 <= vram0[pix_word]; s1_b1 <= vram1[pix_word];
-		s1_b2 <= vram2[pix_word]; s1_b3 <= vram3[pix_word];
+		s1_b0 <= vram_q0; s1_b1 <= vram_q1;
+		s1_b2 <= vram_q2; s1_b3 <= vram_q3;
 		s1_lane <= pix_lane;
 		s1_hbl <= hbl; s1_vbl <= vbl; s1_hsy <= hsy; s1_vsy <= vsy;
 		s1_act <= h_act & v_act & reg_ctrl[0];
