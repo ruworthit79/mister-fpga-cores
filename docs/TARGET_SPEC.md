@@ -19,7 +19,7 @@ mapped to its current status and the concrete work to reach it. Statuses:
 | 8 | **Ethernet** | SONIC DP83932 @ $50F0_A000 | 🟡 | `rtl/io/sonic.sv` is now a **functional register model** (CR/DCR/RCR/TCR/IMR/ISR w1c, silicon-rev, CAM/descriptor pointers, TXP→TXDN→IRQ), wired at $50F0A000, verified in `tb_sonic`. Models "no link" (RX idle, TX complete-and-discard); a full descriptor-DMA engine + MiSTer network path remain. Not required to boot OS 8.1. |
 | 9 | **Floppy** | SWIM + IWM, via IOP | 🟡 | `rtl/io/swim.sv` is now a **functional register model** (IWM soft-switches + ISM mode, drive-sense = installed/empty/not-ready), wired at $50F16000, verified in `tb_swim` — the OS floppy probe completes without hanging. IOP is bypassed (SWIM exposed directly); real GCR/MFM codec + the 6502 IOP mailbox remain. |
 | 10 | **DVD / CD usage** | SCSI CD-ROM (Superstation One DVD dock) | ✅ | The 53C96 model now serves the full mandatory SCSI command set — **INQUIRY, TEST UNIT READY, REQUEST SENSE, READ CAPACITY, MODE SENSE, READ(6)/READ(10), WRITE(6)/WRITE(10)** with multi-block transfers — plus a **CD-ROM device type** (`IS_CDROM`: type 0x05, removable, read-only, 2048-byte blocks mapped 4:1 onto hps_io sectors, **READ TOC**). Channel 0 = internal **hard disk** (boot volume), channel 1 = external **CD-ROM**; ISO mounts via OSD `Mount CD-ROM` (S1). Verified in `tb_scsi` (disk + CD INQUIRY/READ CAPACITY, multi-block READ(10), READ TOC). Simplified: no arbitration/selection/message phases, one implied target per channel. |
-| 11 | **Boots Mac OS 8.1** | — | ⛔ | Requires 1+2 (040+FPU or LC040+FPSP), enough RAM, a real MMU or clean transparent translation, HFS on a SCSI disk, and passing the whole ROM boot chain. See `docs/BOOT_ANALYSIS.md`. |
+| 11 | **Boots Mac OS 8.1** | — | 🟡 | Building blocks now in place: 040 personality (item 1 ✅), FPU present + `unimpl`→FPSP for LC040 boot (item 2), 64–256 MB RAM (item 4 ✅), transparent 1:1 translation, and a probeable SCSI **hard disk** for the HFS boot volume (item 10 ✅). In sim the ROM boot chain currently reaches the ASC init (see `docs/BOOT_ANALYSIS.md`). **Gating:** carry the ROM chain from ASC through to the desktop, put a real HFS OS 8.1 install on the SCSI HD image, and validate on hardware. |
 
 ## Mac OS 8.1 hard requirements (the OS itself)
 
@@ -64,5 +64,14 @@ mapped to its current status and the concrete work to reach it. Statuses:
 
 This is a large program, but the spec is internally consistent and matches real
 Q950 hardware. The current core has the memory map, the CPU integration, and
-most subsystems in place and simulation-verified; the gating items are the FPU,
-the real MMU, the display depth/timing work, and finishing the ROM boot chain.
+most subsystems in place and simulation-verified.
+
+**Progress snapshot.** Done/verified: 68040 personality (1), 64–256 MB RAM (4),
+8/16/32 bpp DAFB scanout (6), SCSI HD + CD-ROM command set (10). Architecture
+landed + unit-verified, integration/hardware remaining: FPU FADD/FSUB/FMUL
+datapath (2), programmable CRTC + pixel divider (7), external-VRAM line-buffer
+path (5), L1 cache model (3), SONIC (8) and SWIM (9) functional register models.
+The remaining gates to a booting desktop (11) are: wiring the FPU arithmetic (or
+staying on LC040 + FPSP), the true high-res pixel PLL + SDRAM controller for the
+display path, and carrying the ROM boot chain from ASC init through to the
+desktop against a real HFS OS 8.1 volume — then hardware validation.
