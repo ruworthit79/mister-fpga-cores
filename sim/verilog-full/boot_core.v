@@ -21,13 +21,20 @@ module boot_core(input clk, input reset);
 	wire [15:0] sd_buff_din [2];
 	wire [7:0]  pram_bk_dout;
 
+	// ---- SCSI disk (channel 0) backed by a mounted HFS image (disk.hex) ----
+	reg  [1:0]  img_mounted_r = 0;
+	reg  [13:0] sd_buff_addr_r = 0;
+	reg  [15:0] sd_buff_dout_r = 0;
+	reg         sd_buff_wr_r = 0;
+	reg  [1:0]  sd_ack_r = 0;
+
 	quadra950 dut (
 		.clk_sys(clk), .reset(reset), .ram_cfg(2'd0), .vmode(2'd0),
 		.ioctl_download(1'b0), .ioctl_index(8'd0), .ioctl_wr(1'b0),
 		.ioctl_addr(27'd0), .ioctl_dout(16'd0),
-		.img_mounted(2'd0), .img_readonly(1'b0), .img_size(64'd0),
-		.sd_lba(sd_lba), .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_ack(2'd0),
-		.sd_buff_addr(14'd0), .sd_buff_dout(16'd0), .sd_buff_din(sd_buff_din), .sd_buff_wr(1'b0),
+		.img_mounted(img_mounted_r), .img_readonly(1'b1), .img_size(64'd1474560),
+		.sd_lba(sd_lba), .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_ack(sd_ack_r),
+		.sd_buff_addr(sd_buff_addr_r), .sd_buff_dout(sd_buff_dout_r), .sd_buff_din(sd_buff_din), .sd_buff_wr(sd_buff_wr_r),
 		.ps2_key(11'd0), .ps2_mouse(25'd0),
 		.pram_bk_addr(8'd0), .pram_bk_wr(1'b0), .pram_bk_din(8'd0), .pram_bk_dout(pram_bk_dout),
 		.DDRAM_CLK(DDRAM_CLK), .DDRAM_BUSY(1'b0), .DDRAM_BURSTCNT(DDRAM_BURSTCNT),
@@ -63,8 +70,47 @@ module boot_core(input clk, input reset);
 		end
 	end
 
+	// ================= SCSI disk model (channel 0) =================
+	// tools1.img "Disk Tools 1" (bootable HFS floppy) served over the hps_io
+	// block interface: 2880 sectors x 512 bytes = 737280 big-endian 16-bit words.
+	reg [15:0] disk [0:737279];
+	initial $readmemh("disk.hex", disk);
+
+	// mount pulse a little after reset (level img_size is set on the port)
+	integer mcnt = 0;
+	always @(posedge clk) begin
+		if (reset) begin mcnt <= 0; img_mounted_r <= 0; end
+		else begin
+			img_mounted_r <= 0;
+			if (mcnt < 200) mcnt <= mcnt + 1;
+			if (mcnt == 100) img_mounted_r <= 2'b01;   // one-cycle mount pulse, ch0
+		end
+	end
+
+	// behavioral HPS block responder: on sd_rd[0], stream 256 words of the
+	// requested sector into the core's sector buffer, then pulse sd_ack[0].
+	integer hi, hstate; reg [31:0] dbase;
+	always @(posedge clk) begin
+		if (reset) begin hstate <= 0; sd_ack_r <= 0; sd_buff_wr_r <= 0; end
+		else begin
+			sd_buff_wr_r <= 0; sd_ack_r <= 0;
+			case (hstate)
+				0: begin hi <= 0; dbase <= sd_lba[0] * 256; if (sd_rd[0]) hstate <= 1; end
+				1: begin
+					sd_buff_addr_r <= hi[13:0];
+					sd_buff_dout_r <= ((dbase + hi) < 737280) ? disk[dbase + hi] : 16'h0000;
+					sd_buff_wr_r   <= 1'b1;
+					if (hi == 255) hstate <= 3; else hi <= hi + 1;
+				end
+				3: begin sd_ack_r[0] <= 1'b1; hstate <= 4; end
+				4: if (!sd_rd[0]) hstate <= 0;
+			endcase
+		end
+	end
+
 	// ---- progress trace ----
 	integer nfetch = 0; reg [31:0] last_pc = 0; reg [31:0] max_pc = 0;
+	reg scsi_seen = 0, bootblk_seen = 0;
 	reg ts_d = 0; integer stall = 0; integer nberr = 0; integer niolog = 0;
 	reg drew = 0;
 	// plateau detector: how many fetches since max_pc last advanced
@@ -235,6 +281,20 @@ module boot_core(input clk, input reset);
 		end
 		if (ce_pix && !HBlank && !VBlank && (r|g|b) != 0 && !drew) begin
 			drew <= 1'b1; $display(">>> DAFB drew a non-black pixel (r=%02x g=%02x b=%02x)!", r, g, b);
+		end
+		// MILESTONE: first CPU access to the internal SCSI register block ($50F10xxx)
+		// = POST finished, ROM is searching for a boot device.
+		if (dut.cpu_ts && dut.cpu_addr[31:12] == 20'h50F10 && !scsi_seen) begin
+			scsi_seen <= 1'b1;
+			$display(">>> MILESTONE: SCSI access %08x (fetch#%0d) - POST done, boot-device search!",
+				dut.cpu_addr, nfetch);
+		end
+		// MILESTONE: the disk model served sector 0/2 (HFS boot blocks / MDB) =
+		// the ROM is actually reading the boot volume.
+		if (sd_rd[0] && !bootblk_seen && (sd_lba[0] <= 32'd4)) begin
+			bootblk_seen <= 1'b1;
+			$display(">>> MILESTONE: disk read LBA=%0d (fetch#%0d) - reading boot blocks from the volume!",
+				sd_lba[0], nfetch);
 		end
 	end
 
