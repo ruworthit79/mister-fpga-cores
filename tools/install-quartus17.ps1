@@ -97,8 +97,10 @@ foreach ($f in @($setupPath, $devPath)) {
 # so both being in $DownloadDir is what we want.
 
 Write-Host "`n[2/3] Installing Quartus Lite 17.0 + Cyclone V (unattended)..."
-Write-Host "      target: $InstallDir  (this takes a while; no window will pop up)"
-$args = "--mode unattended --installdir `"$InstallDir`" --accept_eula 1"
+Write-Host "      target: $InstallDir  (this takes a while; a small progress bar will show)"
+# Quartus 17.0 uses an InstallBuilder setup: unattended mode implies license
+# acceptance (there is no --accept_eula). 'minimal' UI shows a progress bar.
+$args = "--mode unattended --unattendedmodeui minimal --installdir `"$InstallDir`""
 $p = Start-Process -FilePath $setupPath -ArgumentList $args -Wait -PassThru
 if ($p.ExitCode -ne 0) { Write-Error "Installer exited with code $($p.ExitCode)."; exit 1 }
 
